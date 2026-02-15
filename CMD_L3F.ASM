@@ -27,9 +27,9 @@ start:
 ;---------------------------------------------------------------------
 main            proc
                 mov di, 81h	     ; di = ds:[81h](start cmd line)
-                mov al, ' '          ; al = ' ' (symbol to find)
+                mov al, ' '        ; al = ' ' (symbol to find)
 
-                add cl, byte ptr ds:[80h]     ; cx = spaces + ds:[80h](strlen)
+                mov cl, byte ptr ds:[80h]     ; cx = spaces + ds:[80h](strlen)
                 call skip_symb       ; skip spaces
                 xor dx, dx
 
@@ -72,9 +72,9 @@ main            proc
 skip_symb       proc
 
                 mov dx, ds           ; cx = ds
-	            mov es, dx           ; es = cx
+	          mov es, dx           ; es = cx
 
-		        repe scasb           ; while(cx-- || [di++] == ' ')
+		    repe scasb           ; while(cx-- || [di++] == ' ')
                 dec di               ; di--(because points to second not space)
                 inc cx               ; cx++ (becuse points to first not space)
                 
@@ -84,13 +84,14 @@ skip_symb       proc
 
 ;---------------------------------------------------------------------
 ; Parces hex symbol
-; Entry(at stack): [sp + 4] ---> pointer to start of string
-;                  [sp + 2] ---> pointer to start of string
+; Entry(at stack): di ---> pointer to start of string
+;                  cx = string len
 ; Exit: dx - expected symbol(if has)
 ; Expr: symbol format <symb>h<space>
 ; Destr: bl, di and al(if symbol was found di is set at start of main string), dx
 ;---------------------------------------------------------------------
 htoi            proc
+
                 push bp
                 mov bp, sp
 
@@ -99,62 +100,34 @@ htoi            proc
 
                 mov cx, [bp+4]
                 mov di, [bp+6]
+
                 jmp @@conv_loop
 
 @@conv_loop:    mov bl, [di]
-                cmp bl, ' '
-                jb @@exit_n_save
-
-                cmp bl, '9'
-                jbe @@parce_digit
-
-                cmp bl, 'A'
-                jb @@exit_n_save
-
-                cmp bl, 'F'
-                jbe @@parce_upper
-
-                cmp bl, 'a'
-                jb @@exit_n_save
-
-                cmp bl, 'f'
-                jbe @@parce_lower
-
-                cmp bl, 'h'
-                je  @@check_space
-
-                jmp @@exit_n_save
-
-@@check_space:  inc di
-                mov bl, [di]
-                dec cx            ; because -1 symbol in str
 
                 cmp bl, ' '
+                jb @@exit_n_save
+
+                call check_parse_dig
+                jnc @@check_h
+
+                call calcul_value
+                jc @exit_n_save
+
+                dec cx       ; because -1 symbol in str
+                inc di
+
+                jmp @@conv_loop
+
+
+@@check_h:      cmp bl, 'h'
                 jne @@exit_n_save
-                mov al, ' '
 
-                push dx
-                call skip_symb
-                pop dx
-    
+                call chk_skip_space
+                jnc @exit_n_save
+
                 jmp @@exit
 
-@@parce_digit:  sub bl, '0'
-                jmp @@get_itog
-
-@@parce_upper:  sub bl, 'A' - 10
-                jmp @@get_itog
-
-@@parce_lower:  sub bl, 'a' - 10
-                jmp @@get_itog
-
-@@get_itog:     shl dx, 4
-                add dx, bx
-                inc di
-                cmp dx, 0FFh
-                dec cx            ; because -1 symbol in str
-                ja @@exit_n_save
-                jmp @@conv_loop
         
 @@exit_n_save:  xor dx, dx
                 mov cx, [bp+4]
@@ -165,6 +138,98 @@ htoi            proc
                 ret 2d*2d
                 endp
 ;--------------------------------------------------------------------
+
+;--------------------------------------------------------------------
+; Checks if digit in bl and cacul value in of bl
+; Entry: bl - symbol to check
+; Exit: CF = 1 - is digit, CF = 0 -isn't digit,
+;       bl = value for multyply
+; Destr: bl (if value found)
+;--------------------------------------------------------------------
+check_parse_dig proc
+                cmp bl, '0'
+                jbe @@not_digit
+
+                cmp bl, '9'
+                sub bl, '0'
+                jb @@digit
+
+                cmp bl, 'A'
+                jb @@not_digit
+
+                cmp bl, 'F'
+                sub bl, 'A' - 10
+                jbe @@digit
+
+                cmp bl, 'a'
+                jb @@not_digit
+
+                cmp bl, 'f'
+                sub bl, 'a' - 10
+                jbe @@digit
+
+@@not_digit:    clc          ; CF = 0
+                ret
+
+@@digit:        stc          ; CF = 1
+                ret
+                endp
+;--------------------------------------------------------------------
+
+
+;--------------------------------------------------------------------
+; Calcul value of dx in light of value of bl
+; Entry: dx - old value
+;        bx - value of symbol
+;        cx - len of string
+;        di - pointer to symbol in string
+; Exit: CF = 0 - no overflow, CF = 1 - is overflow
+;       dx - intermediate value based on the symbol
+;--------------------------------------------------------------------
+calc_val_ch_ovf  proc
+
+                shl dx, 4
+                add dx, bx
+                cmp dx, 0FFh
+                ja @@overfow
+                jmp @@no_overfow
+
+@@overfow:      stc          ; CF = 1
+                ret
+            
+@@no_overfow:   clc          ; CF = 0
+                ret
+                endp
+;--------------------------------------------------------------------
+
+;--------------------------------------------------------------------
+; Checks if space after h
+; Entry: di - pointer to symbol in string
+;        cx - len of string that will be in frame
+; Exit: CF = 1 - space found, CF = 0 - space not found,
+;              but skip_symb changes cx if space found
+; Destr: bl, di, cx, al
+;--------------------------------------------------------------------
+chk_skip_space  proc
+                inc di
+                mov bl, [di]
+                dec cx            ; because -1 symbol in str
+
+                cmp bl, ' '
+                jne @@no_space
+                mov al, ' '
+
+                push dx
+                call skip_symb
+                pop dx
+                stc          ; CF = 1
+                ret
+
+@@no_space:     clc          ; CF = 0
+                ret
+                endp
+
+
 
 ;--------------------------------------------------------------------
 ; Changes memory segment to video ram (changes es)
@@ -187,7 +252,7 @@ setv_place      proc
                 mov di, [bp+6]      ; getting ram centre
 
                 ; change segment
-		        mov es, ax
+		    mov es, ax
 
                 mov cx, [bp+8]      ; getting len of string
 
@@ -224,13 +289,13 @@ make_title      proc
                 mov si, [bp+6]      ; getting pointer for string
                 mov di, [bp+8]      ; getting pointer for memory in videoram
 
-		        xor ax, ax           ; ax = 0
-		        cld		     ; DF=0 (for si++ and di++) 
+		    xor ax, ax           ; ax = 0
+		    cld		     ; DF=0 (for si++ and di++) 
 str_cpy:	    lodsb		     ; al = ds:[si], si++
-		        stosb		     ; es:[di] = al, di++
-		        mov byte ptr es:[di], COLW ; es:[di]=color
-		        inc di		     ; di++
-		        loop str_cpy
+		    stosb		     ; es:[di] = al, di++
+		    mov byte ptr es:[di], COLW ; es:[di]=color
+		    inc di		     ; di++
+		    loop str_cpy
 
                 mov cx, [bp+4]      ; getting cx (old one)
                 mov si, [bp+8]      ; si = di(old one)
@@ -320,7 +385,9 @@ ch_col_vert_pt: mov ah, color
 ; (for documentation look at each function)
 ; Entry:  dx = custom symbol for frame(0 if there are not custom symbs)
 ;         cx = len
-;         bx = length width
+;         bx = height
+;         si = pointer to the ram where word starts
+;         di = current pointer to ram
 ; Destr: ax, cx, dx, di
 ;---------------------------------------------------------------------
 draw_frame      proc
@@ -328,10 +395,12 @@ draw_frame      proc
                 xor ax, ax   ; ax = 0
                 mov ax, dx   ; ax = dx
 
-                mov dx, 1
-                jmp @@frame
+                add cx, 2    ; because the frame does not fit snugle (+1 in left/right)
+                inc di
 
-@@frame:        push bx
+                ; calcul shift for staring from the down bottom line 
+                call frame_start_shift
+            
                 call_vert_part VL, COLF
 
                 call_make_one_elem RTC, COLF, -2d
@@ -339,14 +408,6 @@ draw_frame      proc
                 call_top_bottom HL, COLF
 
                 call_make_one_elem LTC, COLF
-
-                push dx
-
-                /*TODO - подумать как сделать*/
-                mul dx, 160d
-                add di, dx
-
-                pop dx
 
                 call_vert_part VL, COLF
 
@@ -356,20 +417,35 @@ draw_frame      proc
 
                 call_make_one_elem RBC, COLF
 
-                mov di, 2d
-
-                inc cx
-                inc dx
-
-                pop bx
-                cmp dx, bx
-                ja  @@end
-                jmp near ptr @@frame
-
 @@end:
                 ret 
                 endp
 ;---------------------------------------------------------------------
+
+;--------------------------------------------------------------------
+; Calcul shift for correct draw right horizontal line
+; Entry: bx = height
+; Exit: correct start position to draw(di)
+; Destr: dx, di
+;--------------------------------------------------------------------
+frame_start_shift proc
+
+               xor dx, dx   ; dx = 0
+               mov dx, bx   ; dx = bx
+               shl dx, 5    ; dx = dx*2^5 (= bx*2^5)
+                
+               push ax      ; save ax
+
+               mov  ax, bx  ; ax = bx
+               shl  ax, 7   ; ax = 2^7*ax  (= bx*2^7)
+               add  ax, dx  ; ax = ax + dx (= bx*2^5 + bx*2^7)
+               sub  di, ax  ; di = di - 160*bx
+
+               pop ax       ; return ax to previous value
+
+               ret
+               endp
+;--------------------------------------------------------------------
 
 ;--------------------------------------------------------------------
 ; Draws bottom/top part of frame
@@ -402,13 +478,15 @@ make_top_bottom proc
 ; Entry: ax = (color shl 8) or sym
 ;        di ---> pointer for memory in videoram
 ;        si ---> pointer to the start of the text
-;        dx = len of vertical segment
+;        bx = len of vertical segment
 ; Exit:  nothing returns
-; Destr: DF, di, bx
+; Destr: DF, di
 ;---------------------------------------------------------------------
 make_vert_part  proc
                 push cx
-                mov cx, dx
+                push bx
+
+                mov cx, bx
                 xor bx, bx
 
                 cmp di, si
@@ -429,14 +507,15 @@ make_vert_part  proc
                 loop @@loop_vert
                 jmp @@exit
 
-@@exit:         pop cx
+@@exit:         pop bx
+                pop cx
                 ret
                 endp
 ;---------------------------------------------------------------------
 
 
 exit:           xor ax, ax           ; ax = 0
-		        mov ax, 4c00h
-		        int 21h
+		    mov ax, 4c00h
+		    int 21h
 
 end start
