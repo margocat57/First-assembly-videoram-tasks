@@ -13,7 +13,9 @@ RTC            equ  0bbh             ; right top corner
 LTC            equ  0c9h             ; left top corner
 RBC            equ  0bch             ; right bottom corner
 LBC            equ  0c8h             ; left bottom corner
+<<<<<<< HEAD
 COLF           equ  00001011b        ; color define for frame
+>>>>>>> master
 COLW           equ  10111100b        ; color define for word
 ;--------------------------------------------------------------------
 
@@ -40,14 +42,19 @@ main            proc
                 mov si, di           ; si = di
                 xor ax, ax           ; ax = 0
 
+<<<<<<< HEAD
                 mov ax, 0002h
                 int 10h
 
+=======
                 push cx              ; len of string(cx)
                 push 5d*80d*2d+80d   ; shift in videoram
                 push 0b800h          ; start of videoram
                 call setv_place
+<<<<<<< HEAD
                 add sp, 6         
+=======      
+>>>>>>> master
 
                 xor bx, bx            ; bx = 0
 
@@ -75,9 +82,12 @@ main            proc
 skip_symb       proc
 
                 mov dx, ds           ; cx = ds
+<<<<<<< HEAD
 	          mov es, dx           ; es = cx
 
 		    repe scasb           ; while(cx-- || es:[di++] == ' ')
+=======
+>>>>>>> master
                 dec di               ; di--(because points to second not space)
                 inc cx               ; cx++ (becuse points to first not space)
                 
@@ -87,14 +97,20 @@ skip_symb       proc
 
 ;---------------------------------------------------------------------
 ; Parces hex symbol
-; Entry(at stack): di ---> pointer to start of string
-;                  cx = string len
+<<<<<<< HEAD
+; Entry(at stack): [sp + 4] ---> pointer to start of string
+;                  [sp + 2] = string len
+=======
+>>>>>>> master
 ; Exit: dx - expected symbol(if has)
 ; Expr: symbol format <symb>h<space>
 ; Destr: bl, di and al(if symbol was found di is set at start of main string), dx
 ;---------------------------------------------------------------------
 htoi            proc
+<<<<<<< HEAD
 
+=======
+>>>>>>> master
                 push bp
                 mov bp, sp
 
@@ -103,6 +119,7 @@ htoi            proc
 
                 mov cx, [bp+4]
                 mov di, [bp+6]
+<<<<<<< HEAD
 
                 jmp @@conv_loop
 
@@ -131,6 +148,7 @@ htoi            proc
 
                 jmp @@exit
 
+=======
         
 @@exit_n_save:  xor dx, dx
                 mov cx, [bp+4]
@@ -143,6 +161,7 @@ htoi            proc
 ;--------------------------------------------------------------------
 
 ;--------------------------------------------------------------------
+<<<<<<< HEAD
 ; Checks if digit in bl
 ; Entry: bl - symbol to check
 ; Exit: CF = 1 - is digit, CF = 0 -isn't digit
@@ -262,6 +281,8 @@ chk_skip_space  proc
 
 
 ;--------------------------------------------------------------------
+=======
+>>>>>>> master
 ; Changes memory segment to video ram (changes es)
 ; Makes shift to make title in the centre of window
 ; Entry(at stack): [sp+2]  = start of segment of videoram
@@ -282,7 +303,10 @@ setv_place      proc
                 mov di, [bp+6]      ; getting ram centre
 
                 ; change segment
+<<<<<<< HEAD
 		    mov es, ax
+=======
+>>>>>>> master
 
                 mov cx, [bp+8]      ; getting len of string
 
@@ -319,6 +343,7 @@ make_title      proc
                 mov si, [bp+6]      ; getting pointer for string
                 mov di, [bp+8]      ; getting pointer for memory in videoram
 
+<<<<<<< HEAD
 		    xor ax, ax           ; ax = 0
 		    cld		     ; DF=0 (for si++ and di++) 
 str_cpy:	    lodsb		     ; al = ds:[si], si++
@@ -326,6 +351,7 @@ str_cpy:	    lodsb		     ; al = ds:[si], si++
 		    mov byte ptr es:[di], COLW ; es:[di]=color
 		    inc di		     ; di++
 		    loop str_cpy
+>>>>>>> master
 
                 mov cx, [bp+4]      ; getting cx (old one)
                 mov si, [bp+8]      ; si = di(old one)
@@ -415,9 +441,12 @@ ch_col_vert_pt: mov ah, color
 ; (for documentation look at each function)
 ; Entry:  dx = custom symbol for frame(0 if there are not custom symbs)
 ;         cx = len
+<<<<<<< HEAD
 ;         bx = height
 ;         si = pointer to the ram where word starts
 ;         di = current pointer to ram
+=======
+>>>>>>> master
 ; Destr: ax, cx, dx, di
 ;---------------------------------------------------------------------
 draw_frame      proc
@@ -425,19 +454,25 @@ draw_frame      proc
                 xor ax, ax   ; ax = 0
                 mov ax, dx   ; ax = dx
 
+<<<<<<< HEAD
                 add cx, 2    ; because the frame does not fit snugle (+1 in left/right)
                 add di, 2
 
                 ; calcul shift for staring from the down bottom line 
                 call frame_start_shift
             
+=======
+>>>>>>> master
                 call_vert_part VL, COLF
 
                 call_make_one_elem RTC, COLF, -2d
 
                 call_top_bottom HL, COLF
 
+<<<<<<< HEAD
                 call_make_one_elem LTC, COLF, 2d*80d
+=======
+>>>>>>> master
 
                 call_vert_part VL, COLF
 
@@ -447,12 +482,16 @@ draw_frame      proc
 
                 call_make_one_elem RBC, COLF
 
+<<<<<<< HEAD
+=======
+>>>>>>> master
 @@end:
                 ret 
                 endp
 ;---------------------------------------------------------------------
 
 ;--------------------------------------------------------------------
+<<<<<<< HEAD
 ; Calcul shift for correct draw right horizontal line
 ; Entry: bx = height
 ; Exit: correct start position to draw(di)
@@ -482,6 +521,8 @@ frame_start_shift proc
 ;--------------------------------------------------------------------
 
 ;--------------------------------------------------------------------
+=======
+>>>>>>> master
 ; Draws bottom/top part of frame
 ; Entry: ax = (color shl 8) or sym
 ;        di ---> pointer for memory in videoram
@@ -512,6 +553,7 @@ make_top_bottom proc
 ; Entry: ax = (color shl 8) or sym
 ;        di ---> pointer for memory in videoram
 ;        si ---> pointer to the start of the text
+<<<<<<< HEAD
 ;        bx = len of vertical segment
 ; Exit:  nothing returns
 ; Destr: DF, di
@@ -521,6 +563,8 @@ make_vert_part  proc
                 push bx
 
                 mov cx, bx
+=======
+>>>>>>> master
                 xor bx, bx
 
                 cmp di, si
@@ -541,15 +585,21 @@ make_vert_part  proc
                 loop @@loop_vert
                 jmp @@exit
 
+<<<<<<< HEAD
 @@exit:         pop bx
                 pop cx
+=======
+>>>>>>> master
                 ret
                 endp
 ;---------------------------------------------------------------------
 
 
 exit:           xor ax, ax           ; ax = 0
+<<<<<<< HEAD
 		    mov ax, 4c00h
 		    int 21h
+=======
+>>>>>>> master
 
 end start
