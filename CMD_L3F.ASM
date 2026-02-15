@@ -22,12 +22,21 @@ start:
                 call main
                 jmp exit
 
-;---------------------------------------------------------------------
-; TBD
-;---------------------------------------------------------------------
+
+;----------------------------------------------------------------
+; Main function:
+; 1. Skip spaces and parses symbol with which frame will be filles(if has)
+; 2. Sets videoram segment and place for title
+; 3. Writes title
+; 4. Draws frame
+;-----------------------------------------------------------------
 main            proc
                 mov di, 81h	     ; di = ds:[81h](start cmd line)
                 mov al, ' '        ; al = ' ' (symbol to find)
+
+                ;----------------------------------------------------
+                ; Skip space and parce symbol for frame(if has)
+                ;----------------------------------------------------
 
                 mov cl, byte ptr ds:[80h]     ; cx = ds:[80h]
                 call skip_symb       ; skip spaces
@@ -40,6 +49,10 @@ main            proc
                 mov si, di           ; si = di
                 xor ax, ax           ; ax = 0
 
+                ;----------------------------------------------------
+                ; Set videoram segment and place for title
+                ;----------------------------------------------------
+
                 mov ax, 0002h
                 int 10h
 
@@ -51,10 +64,18 @@ main            proc
 
                 xor bx, bx            ; bx = 0
 
+                ;----------------------------------------------------
+                ; Write title
+                ;----------------------------------------------------
+
                 push di
                 push si
                 push cx
                 call make_title
+
+                ;----------------------------------------------------
+                ; Draw frame
+                ;----------------------------------------------------
 
                 mov bx, 3
                 call draw_frame  
@@ -96,18 +117,19 @@ skip_symb       proc
 ;---------------------------------------------------------------------
 htoi            proc
 
+                ; prologue
                 push bp
                 mov bp, sp
 
-                xor dx, dx
-                xor bx, bx
+                xor dx, dx       ; dx = 0
+                xor bx, bx       ; bx = 0
 
-                mov cx, [bp+4]
-                mov di, [bp+6]
+                mov cx, [bp+4]   ; cx = [bp+4]
+                mov di, [bp+6]   ; di = [bp+6]
 
                 jmp @@conv_loop
 
-@@conv_loop:    mov byte ptr bl, [di]
+@@conv_loop:    mov byte ptr bl, [di] ; bl = ds:[di]
 
                 cmp bl, ' '
                 jb @@exit_n_save
@@ -118,8 +140,8 @@ htoi            proc
                 call calc_val_ch_ovf
                 jc @@exit_n_save
 
-                dec cx       ; because -1 symbol in str
-                inc di
+                dec cx       ; cx -- (because frame symbols will not be written)
+                inc di       ; di++
 
                 jmp @@conv_loop
 
@@ -144,9 +166,10 @@ htoi            proc
 ;--------------------------------------------------------------------
 
 ;--------------------------------------------------------------------
-; Checks if digit in bl
-; Entry: bl - symbol to check
-; Exit: CF = 1 - is digit, CF = 0 -isn't digit
+; Validate if character in BL is a valid hexadecimal digit
+; Entry: bl - character to validate
+; Exit: CF = 1 - if character is valid hexadecimal digit, 
+;       CF = 0 - if character isn't valid hexadecimal digit
 ; Destr: СF
 ;--------------------------------------------------------------------
 check_parse_dig proc
@@ -179,9 +202,11 @@ check_parse_dig proc
 ;--------------------------------------------------------------------
 
 ;--------------------------------------------------------------------
-; Calcul value (from 0 to 15) that is set in blS
-; Entry:  bl - registr with digit
-; Exit: bl - value from 0 to 16
+; Converts a hexadecimal digit character (0-9, A-F, a-f)
+;     to its corresponding numeric value (0-15)
+; Entry:  bl - ASCII character of hexadecimal digit
+; Exit: bl - numeric value (0-15) corresponding to input character
+; Exp:  bl in range: '0'-'9', 'A'-'F', 'a'-'f'
 ; Destr: bl
 ;--------------------------------------------------------------------
 calc_dig_bl     proc
@@ -204,16 +229,15 @@ calc_dig_bl     proc
 @@lower:        sub bl, 'a' - 10
                 ret
                 endp
-
+;--------------------------------------------------------------------
 
 ;--------------------------------------------------------------------
-; Calcul value of dx in light of value of bl
-; Entry: dx - old value
-;        bx - value of symbol
-;        cx - len of string
-;        di - pointer to symbol in string
-; Exit: CF = 0 - no overflow, CF = 1 - is overflow
-;       dx - intermediate value based on the symbol
+; Calculate hexadecimal value with overflow detection
+; Entry: dx = current accumulated value (previous digits)
+;        bx = value of current hex digit (0-15 from calc_dig_bl)
+; Exit: CF = 0 - no overflow, 
+;       CF = 1 - overflow occurred
+;       dx - new accumulated value 
 ;--------------------------------------------------------------------
 calc_val_ch_ovf  proc
 
@@ -234,11 +258,12 @@ calc_val_ch_ovf  proc
 ;--------------------------------------------------------------------
 
 ;--------------------------------------------------------------------
-; Checks if space after h
-; Entry: di - pointer to symbol in string
-;        cx - len of string that will be in frame
-; Exit: CF = 1 - space found, CF = 0 - space not found,
-;              but skip_symb changes cx if space found
+; Check for space and skip if present
+; Entry: di - pointer to current position in string
+;        cx - length of string that will be in frame
+; Exit: CF = 1 - space found and skipped, 
+;       CF = 0 - no space found,
+; When CF = 1, parametrs(cx and di) were changed by skip_symb
 ; Destr: bl, di, cx, al
 ;--------------------------------------------------------------------
 chk_skip_space  proc
@@ -259,18 +284,16 @@ chk_skip_space  proc
 @@no_space:     clc          ; CF = 0
                 ret
                 endp
-
+;--------------------------------------------------------------------
 
 
 ;--------------------------------------------------------------------
-; Changes memory segment to video ram (changes es)
-; Makes shift to make title in the centre of window
+; Set video memory segment and center title position
 ; Entry(at stack): [sp+2]  = start of segment of videoram
 ;                  [sp+4]  = point of centre of videoram
 ;                  [sp+6]  = len of string
-; Exit:  es  = start of videoram segment
-;        di  = start of string in videoram
-;        cx  = len of part of string contains symbols in al
+; Exit:  es = video RAM segment
+;        di = starting offset in video RAM for centered string
 ; Destr: ax, change es to data in ax, di
 ;---------------------------------------------------------------------
 setv_place      proc
@@ -302,12 +325,12 @@ sub_not_even:   mov ax, cx           ; ax = cx
 ;---------------------------------------------------------------------
 
 ;---------------------------------------------------------------------
-; Puts text(ds:[si]) to videoram(es:[di])
-; Entry(at stack): [sp+6](di)  ---> pointer for memory in videoram
-;                  [sp+4](si)  ---> pointer for string
+;  Write text string (ds:[si]) to video RAM (es:[di]) with color attribute
+; Entry(at stack): [sp+6](di)  ---> pointer for memory in video RAM
+;                  [sp+4](si)  ---> pointer to string in DS
 ;                  [sp+2](cx)     - string length
-; Exit:  does not return anything
-; Expr:  es - sets videoram segments
+; Exit: String character written to ES:[DI] with color COLW(see macro definitions)
+; Exp:  es - sets videoram segments
 ; Destr: ax, di, si, DF(set to 0)
 ;---------------------------------------------------------------------
 make_title      proc
@@ -338,11 +361,12 @@ str_cpy:	    lodsb		     ; al = ds:[si], si++
 
 
 ;--------------------------------------------------------------------
-; Sets params (in al and al) and draws one symbol
-; Entry: sym  = symbol to draw
-;        color = color for symbol
-;        shift = di shift (not obligatory)
-; Exit:  nothing returns
+; Draw a single character with color attribute
+; Entry: sym  - Character to display
+;        color - Color attribute byte
+;        shift - Optional parameter: number of bytes to add to DI 
+;                  after  writing
+; Exit:  One character written to ES:[DI] with color at ES:[DI+1]
 ; Destr: di(if shift set)
 ;---------------------------------------------------------------------
 call_make_one_elem macro sym, color, shift
@@ -367,10 +391,11 @@ ch_col_one_el:  mov ah, color
 
 
 ;--------------------------------------------------------------------
-; Sets params (in al and al) and calls videoram function
-; Entry: sym  = symbol to draw
-;        color = color for symbol
-; Exit:  nothing returns
+; Sets params to draw  horizontal border element with color
+; Calls function to draw the border element
+; Entry: sym - ASCII character to draw
+;        color - Color attribute byte for the border
+; Exit: No return value (video memory updated)
 ;---------------------------------------------------------------------
 call_top_bottom macro sym, color
                 local ch_col_top_bot
@@ -389,10 +414,11 @@ ch_col_top_bot: mov ah, color
 ;---------------------------------------------------------------------
 
 ;--------------------------------------------------------------------
-; Sets params (in al and al) and calls videoram function
-; Entry: sym  = symbol to draw
-;        color = color for symbol
-; Exit:  nothing returns
+; Sets params to draw vertical border element with color
+; Calls function to draw the border element
+; Entry: sym - ASCII character to draw
+;        color - Color attribute byte for the border
+; Exit: No return value (video memory updated)
 ;---------------------------------------------------------------------
 call_vert_part  macro sym, color
                 local ch_col_vert_pt
@@ -412,13 +438,15 @@ ch_col_vert_pt: mov ah, color
 ;---------------------------------------------------------------------
 
 ;---------------------------------------------------------------------
-; Сalls functions that draw frame
-; (for documentation look at each function)
-; Entry:  dx = custom symbol for frame(0 if there are not custom symbs)
-;         cx = len
-;         bx = height
-;         si = pointer to the ram where word starts
-;         di = current pointer to ram
+; Main frame drawing function
+; IMPORTANT: macro VL, RTC, etc will be used for frame only
+;            if custom symbol isn't set (dx = 0)
+; Entry:  dx = custom symbol for frame (0 if using default symbols)
+;         cx = length of text area
+;         bx = height of frame
+;         si = pointer to start of text area in video RAM
+;         di = current pointer to video RAM (starting position)
+; Exit: No return value (video memory updated)
 ; Destr: ax, cx, dx, di
 ;---------------------------------------------------------------------
 draw_frame      proc
@@ -454,9 +482,10 @@ draw_frame      proc
 ;---------------------------------------------------------------------
 
 ;--------------------------------------------------------------------
-; Calcul shift for correct draw right horizontal line
-; Entry: bx = height
-; Exit: correct start position to draw(di)
+; Calculate video offset for right horizontal line
+; Entry: bx = frame height
+;        di = current video memory offset
+; Exit:  di = new position to start drawing vertical line in frame
 ; Destr: dx, di
 ;--------------------------------------------------------------------
 frame_start_shift proc
@@ -483,12 +512,11 @@ frame_start_shift proc
 ;--------------------------------------------------------------------
 
 ;--------------------------------------------------------------------
-; Draws bottom/top part of frame
-; Entry: ax = (color shl 8) or sym
-;        di ---> pointer for memory in videoram
-;        cx = len
-;        si ---> pointer to the start of the text
-; Exit:  nothing returns
+; Draw top or bottom border line with direction control
+; Entry: di ---> current pointer in video memory 
+;        cx = length of line
+;        si ---> pointer to the start of the text in video memory
+; Exit:  None (video memory updated)
 ; Destr: ax, DF, di
 ;---------------------------------------------------------------------
 make_top_bottom proc
@@ -509,12 +537,11 @@ make_top_bottom proc
 
 
 ;--------------------------------------------------------------------
-; Draws vertical part of frame
-; Entry: ax = (color shl 8) or sym
-;        di ---> pointer for memory in videoram
-;        si ---> pointer to the start of the text
-;        bx = len of vertical segment
-; Exit:  nothing returns
+; Draw vertical line of frame
+; Entry: di ---> current pointer in video memory 
+;        si ---> pointer to the start of the text in video memory
+;        bx = length of verticalline
+; Exit:  None (video memory updated)
 ; Destr: DF, di
 ;---------------------------------------------------------------------
 make_vert_part  proc
