@@ -13,7 +13,7 @@ RTC            equ  0bbh             ; right top corner
 LTC            equ  0c9h             ; left top corner
 RBC            equ  0bch             ; right bottom corner
 LBC            equ  0c8h             ; left bottom corner
-COLF           equ  10111100b        ; color define for frame
+COLF           equ  00001011b        ; color define for frame
 COLW           equ  10111100b        ; color define for word
 ;--------------------------------------------------------------------
 
@@ -29,7 +29,7 @@ main            proc
                 mov di, 81h	     ; di = ds:[81h](start cmd line)
                 mov al, ' '        ; al = ' ' (symbol to find)
 
-                mov cl, byte ptr ds:[80h]     ; cx = spaces + ds:[80h](strlen)
+                mov cl, byte ptr ds:[80h]     ; cx = ds:[80h]
                 call skip_symb       ; skip spaces
                 xor dx, dx
 
@@ -40,11 +40,14 @@ main            proc
                 mov si, di           ; si = di
                 xor ax, ax           ; ax = 0
 
+                mov ax, 0002h
+                int 10h
+
                 push cx              ; len of string(cx)
                 push 5d*80d*2d+80d   ; shift in videoram
                 push 0b800h          ; start of videoram
                 call setv_place
-                add sp, 6            
+                add sp, 6         
 
                 xor bx, bx            ; bx = 0
 
@@ -74,7 +77,7 @@ skip_symb       proc
                 mov dx, ds           ; cx = ds
 	          mov es, dx           ; es = cx
 
-		    repe scasb           ; while(cx-- || [di++] == ' ')
+		    repe scasb           ; while(cx-- || es:[di++] == ' ')
                 dec di               ; di--(because points to second not space)
                 inc cx               ; cx++ (becuse points to first not space)
                 
@@ -103,7 +106,7 @@ htoi            proc
 
                 jmp @@conv_loop
 
-@@conv_loop:    mov bl, [di]
+@@conv_loop:    mov byte ptr bl, [di]
 
                 cmp bl, ' '
                 jb @@exit_n_save
@@ -111,8 +114,8 @@ htoi            proc
                 call check_parse_dig
                 jnc @@check_h
 
-                call calcul_value
-                jc @exit_n_save
+                call calc_val_ch_ovf
+                jc @@exit_n_save
 
                 dec cx       ; because -1 symbol in str
                 inc di
@@ -124,7 +127,7 @@ htoi            proc
                 jne @@exit_n_save
 
                 call chk_skip_space
-                jnc @exit_n_save
+                jnc @@exit_n_save
 
                 jmp @@exit
 
@@ -140,33 +143,31 @@ htoi            proc
 ;--------------------------------------------------------------------
 
 ;--------------------------------------------------------------------
-; Checks if digit in bl and cacul value in of bl
+; Checks if digit in bl
 ; Entry: bl - symbol to check
-; Exit: CF = 1 - is digit, CF = 0 -isn't digit,
-;       bl = value for multyply
-; Destr: bl (if value found)
+; Exit: CF = 1 - is digit, CF = 0 -isn't digit
+; Destr: СF
 ;--------------------------------------------------------------------
 check_parse_dig proc
                 cmp bl, '0'
-                jbe @@not_digit
+                jb @@not_digit
 
                 cmp bl, '9'
-                sub bl, '0'
-                jb @@digit
+                jbe @@digit
 
                 cmp bl, 'A'
                 jb @@not_digit
 
                 cmp bl, 'F'
-                sub bl, 'A' - 10
                 jbe @@digit
 
                 cmp bl, 'a'
                 jb @@not_digit
 
                 cmp bl, 'f'
-                sub bl, 'a' - 10
                 jbe @@digit
+
+                jmp @@not_digit
 
 @@not_digit:    clc          ; CF = 0
                 ret
@@ -175,6 +176,33 @@ check_parse_dig proc
                 ret
                 endp
 ;--------------------------------------------------------------------
+
+;--------------------------------------------------------------------
+; Calcul value (from 0 to 15) that is set in blS
+; Entry:  bl - registr with digit
+; Exit: bl - value from 0 to 16
+; Destr: bl
+;--------------------------------------------------------------------
+calc_dig_bl     proc
+
+                cmp bl, '9'
+                jbe @@sub_0
+
+                cmp bl, 'F'
+                jbe @@upper
+
+                cmp bl, 'f'
+                jbe @@lower
+
+@@sub_0:        sub bl, '0'
+                ret
+
+@@upper:        sub bl, 'A' - 10
+                ret
+
+@@lower:        sub bl, 'a' - 10
+                ret
+                endp
 
 
 ;--------------------------------------------------------------------
@@ -187,6 +215,8 @@ check_parse_dig proc
 ;       dx - intermediate value based on the symbol
 ;--------------------------------------------------------------------
 calc_val_ch_ovf  proc
+
+                call calc_dig_bl
 
                 shl dx, 4
                 add dx, bx
@@ -396,7 +426,7 @@ draw_frame      proc
                 mov ax, dx   ; ax = dx
 
                 add cx, 2    ; because the frame does not fit snugle (+1 in left/right)
-                inc di
+                add di, 2
 
                 ; calcul shift for staring from the down bottom line 
                 call frame_start_shift
@@ -407,7 +437,7 @@ draw_frame      proc
 
                 call_top_bottom HL, COLF
 
-                call_make_one_elem LTC, COLF
+                call_make_one_elem LTC, COLF, 2d*80d
 
                 call_vert_part VL, COLF
 
@@ -430,6 +460,9 @@ draw_frame      proc
 ;--------------------------------------------------------------------
 frame_start_shift proc
 
+               push bx
+               shr bx, 1
+
                xor dx, dx   ; dx = 0
                mov dx, bx   ; dx = bx
                shl dx, 5    ; dx = dx*2^5 (= bx*2^5)
@@ -439,9 +472,10 @@ frame_start_shift proc
                mov  ax, bx  ; ax = bx
                shl  ax, 7   ; ax = 2^7*ax  (= bx*2^7)
                add  ax, dx  ; ax = ax + dx (= bx*2^5 + bx*2^7)
-               sub  di, ax  ; di = di - 160*bx
+               add  di, ax  ; di = di + 160*bx (start from bottom to top)
 
                pop ax       ; return ax to previous value
+               pop bx       ; return bx to previous value
 
                ret
                endp
