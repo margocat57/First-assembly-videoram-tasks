@@ -16,18 +16,6 @@ COLF           equ  00001011b        ; color define for frame
 COLW           equ  10111100b        ; color define for word
 ;--------------------------------------------------------------------
 
-;--------------------------------------------------------------------
-; frame structure
-frame_struct STRUC
-    VL db ?
-    HL db ?
-    LTC db ?
-    RTC db ?
-    LBC db ?
-    RBC db ?
-frame_struct ENDS
-;-------------------------------------------------------------------
-
 start:          
                 call main
                 jmp exit
@@ -104,10 +92,11 @@ main            proc
                 call_check_htoi   ; frame number
                 mov bx, frame_count
                 cmp dx, bx
-                push dx
                 jb @@continue
                 jmp near ptr exit_err
-@@continue:
+
+@@continue:     push dx
+
                 ;----------------------------------------------------
                 ; Set videoram segment and place for title
                 ;----------------------------------------------------
@@ -138,7 +127,6 @@ main            proc
                 ;----------------------------------------------------
                 ; Draw frame
                 ;----------------------------------------------------
-
 
                 call draw_frame  
                 ret 
@@ -228,8 +216,8 @@ htoi            proc
 ;
 ; Exit:  CF = 1 if 'h' found and space skipped successfully
 ;        CF = 0 otherwise
-;        di - pointer to string without one symbol (if h found)
-;        cx - length of string reduced by one (if h found)
+;        di - pointer to string without one symbol 
+;        cx - length of string reduced by one
 ;
 ; Note:  CF is used because it's one of the few flags 
 ;         that can be modified with a special instruction
@@ -302,13 +290,11 @@ is_digit        proc
 ;        and stores the result back in bl.
 ;
 ; How it works:
-;   1. Saves original in al, make bl in range 0-9(mask 00111111b)
+;   1. Saves original in al, make bl in range 0-9 (mask 00111111b)
 ;   2. Extracts bit 6 from original char, that shows is char letter or not
 ;      (1 if in range 'a' - 'f', 0 if in range '0'-'9')
-;   4. Converts bit 6 to correction (0 or 10):
-;      bit6 (0/64) → shr 6 (0/1) → shl 1 (0/2) → 
-;      copy → shl 2 (0/8) → OR (0/10)
-;   5. Adds correction to bl:
+;   4. Converts bit 6 to correction (0 or 9):
+;   5. Adds correction to bl
 ;
 ; Entry:  bl - ASCII character of hexadecimal digit
 ;
@@ -521,9 +507,6 @@ str_cpy:	    lodsb		     ; al = ds:[si], si++
 ;          7. Bottom horizontal line
 ;          8. Bottom right corner element
 ;
-; IMPORTANT: macro VL, RTC, etc will be used for frame only
-;            if custom symbol isn't set (dx = 0)
-;
 ; Entry:  cx = length of text area
 ;         si = pointer to start of text area in video RAM
 ;         di = current pointer to video RAM (starting position)
@@ -714,9 +697,11 @@ exit_err:   xor ax, ax           ; ax = 0
 		    mov ax, 4c01h
 		    int 21h
 
+
 ;--------------------------------------------------------------------
 ; frame array
 frames:
+;       VL    HL   LTC   RTC   LBC   RBC
     db 0bah, 0cdh, 0c9h, 0bbh, 0c8h, 0bch
     db 0b3h, 0c4h, 0dah, 0bfh, 0c0h, 0d9h
     db 0dbh, 0dbh, 0dbh, 0dbh, 0dbh, 0dbh
