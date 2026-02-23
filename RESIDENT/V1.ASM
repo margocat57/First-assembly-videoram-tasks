@@ -71,7 +71,7 @@ set_new_09h     macro
                 mov ax, 2509h
                 push cs
                 pop ds
-                mov dx, offset check_A 
+                mov dx, offset check_ESC 
                 int 21h
                 pop ds  
                 endm
@@ -112,22 +112,22 @@ main:
 
 
 ;--------------------------------------------------------------------
-; Get symbol from keyboard and compare its scan code with A
+; Get symbol from keyboard and compare its scan code with ESC
 ;
 ; Descr: Reads the scan code from port 60h, 
 ;        acknowledges the keyboard via port 61h, 
-;        compares the received scan code with the English 'A' 
+;        compares the received scan code with ESC
 ;        key scan code (1Eh), and sets the Carry Flag (CF) if comparison succesful
 ;
 ; Entry: (port) 60h - scan code of current symbol of string
 ;
-; Exit:  CF = 1 - the scan code matches English 'A' (1Eh), 
+; Exit:  CF = 1 - the scan code matches ESC(01h),
 ;        CF = 0 - otherwise
 ;
 ; Note: CF is used because it's one  of the few flags 
 ;        that can be modified with a special instruction
 ;--------------------------------------------------------------------
-check_A         proc
+check_ESC       proc
                 push ax bx cx dx si di bp ds es
 
                 in al, 60h      
@@ -140,19 +140,20 @@ check_A         proc
                 and al, 01111111b 
                 out 61h, al 
 
-                cmp bl, 1Eh
-                jne @@not_a
+                cmp bl, 01h
+                jne @@not_esc
                 
                 call show_regs
+                jmp @@EOI
 
-@@not_a:         
-                mov al, 20h     
+@@not_esc:         
+                pushf
+                call dword ptr cs:[Old09Offs]
+
+@@EOI:          mov al, 20h     
                 out 20h, al  
 
                 pop es ds bp di si dx cx bx ax 
-
-                pushf
-                call dword ptr cs:[Old09Offs]
 
                 iret
 
@@ -163,6 +164,19 @@ check_A         proc
 ; Display the contents of registers AX, BX, CX, DX 
 ;
 ; Entry: ax, bx, cx, dx values
+; Note: At previous function:
+; push ax bx cx dx si di bp ds es
+; ax  <-- bp + 20
+; bx  <-- bp + 18
+; cx  <-- bp + 16
+; dx  <-- bp + 14
+; si  <-- bp + 12
+; di  <-- bp + 10
+; bp  <-- bp + 8
+; ds  <-- bp + 6
+; es  <-- bp + 4
+; ret adress <-- bp + 2
+; bp  <-- bp
 ;
 ; Exit:  No return value (video memory updated)
 ;
@@ -174,10 +188,10 @@ show_regs       proc
 
                 call set_videoram
 
-                mov dx, [bp + 4]
-                mov cx, [bp + 6]
-                mov bx, [bp + 8]
-                mov ax, [bp + 10]
+                mov dx, [bp + 14]
+                mov cx, [bp + 16]
+                mov bx, [bp + 18]
+                mov ax, [bp + 20]
                 call draw_regs
 
                 mov bx, 4d
@@ -188,8 +202,6 @@ show_regs       proc
                 ret
 
 @@exit:         
-                ;pushf
-                ;call dword ptr cs:[Old09Offs]
                 pop bp
                 ret
 
