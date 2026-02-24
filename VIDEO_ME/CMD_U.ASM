@@ -23,11 +23,6 @@ start:
 ;--------------------------------------------------------------------
 ; Calls the htoi function and check if result is correct
 ;
-; Descr: Calls the htoi procedure and validates its return value. 
-;        If the procedure returns an error code (0xFFFF in the DX register), 
-;        the macro jumps to the exit_err label. 
-;        Otherwise, it pushes the valid result onto the stack.
-;
 ; Entry: cx = string length
 ;        di ---> pointer to start of string in DS
 ;
@@ -48,14 +43,6 @@ continue:       endm
 
 ;----------------------------------------------------------------
 ; Main function of progran drawing frame
-;
-; 1. Skip spaces 
-; 2. Parce frame height 
-; 3. Parses syle of frame and checks if it is correct
-; Note: If program can't do step 2 or 3 - fails with exit code 1
-; 4. Sets videoram segment and place for title
-; 5. Writes title
-; 6. Draws frame
 ;
 ; Input:  DS:[80h] - command line length
 ;         DS:[81h] - command line string
@@ -133,9 +120,6 @@ main            proc
 
 ;--------------------------------------------------------------------
 ; Skip repeated characters in string
-; 
-; Descr: Using scasb to skip all leading characters matching al
-;        until the first non-matching character is found
 ;
 ; Entry: al  = character to skip
 ;        cx  = length of string (maximum 0FFFh)
@@ -164,10 +148,6 @@ skip_symb       proc
 
 ;---------------------------------------------------------------------
 ; Parse hexadecimal number from command line
-;
-; Descr: Parses a number from string in format <digits>h<space>.
-;        Checks that value is less than 255.
-;        Returns FFFh in dx if: number not found, value > 255, or format mismatch.
 ;
 ; Entry: cx = string length
 ;        di ---> pointer to start of string in DS
@@ -244,9 +224,6 @@ check_h_suffix  proc
 ;--------------------------------------------------------------------
 ; Validate if character in BL is a valid hexadecimal digit
 ;
-; Descr: Validates whether the character in BL is a valid hexadecimal digit.
-;        Result is returned in Carry Flag (CF). 
-;
 ; Entry: bl - ASCII character to validate
 ;
 ; Exit: CF = 1 - if character is valid hexadecimal digit, 
@@ -283,17 +260,6 @@ is_digit        proc
 ; Converts a hexadecimal digit character (0-9, A-F, a-f)
 ;            to its corresponding numeric value (0-15)
 ;
-; Descr: Converts the character in bl using bit shifts
-;        to its corresponding hexadecimal numeric value
-;        and stores the result back in bl.
-;
-; How it works:
-;   1. Saves original in al, make bl in range 0-9 (mask 00111111b)
-;   2. Extracts bit 6 from original char, that shows is char letter or not
-;      (1 if in range 'a' - 'f', 0 if in range '0'-'9')
-;   4. Converts bit 6 to correction (0 or 9):
-;   5. Adds correction to bl
-;
 ; Entry:  bl - ASCII character of hexadecimal digit
 ;
 ; Exit: bl - numeric value (0-15) corresponding to input character
@@ -305,14 +271,18 @@ convert_letter_to_digit proc
 
                 xor ax, ax  ; ax = 0
 
+                ; save original in al
                 mov al, bl
 
+                ; make bl in range 0-9 (mask 00111111b)
                 and bl, 00111111b
                 or  bl, 00010000b
                 sub bl, '0'
 
+                ; extracts bit 6 from original char, that shows is char letter or not
                 and al, 01000000b
 
+                ; converts bit 6 to correction(0 or 9)
                 shr al, 6
 
                 mov ah, al
@@ -320,6 +290,7 @@ convert_letter_to_digit proc
 
                 or al, ah
 
+                ; adds correction to bl
                 add bl, al
 
                 pop ax
@@ -329,10 +300,6 @@ convert_letter_to_digit proc
 
 ;--------------------------------------------------------------------
 ; Calculate hexadecimal value with overflow detection
-; 
-; Descr: Updates accumulated value by shifting left 4 bits
-;        and adding the value from bx. 
-;        Checks for 8-bit overflow.
 ;
 ; Entry: dx = current accumulated value (previous digits)
 ;        bx = value of current hex digit (0-15 from calc_dig_bl)
@@ -349,7 +316,7 @@ calcul_value_check_overflow  proc
                 add dx, bx
                 cmp dx, 0FFh
                 ja @@overfow
-@@no_overfow:   clc          ; CF = 0
+                clc          ; CF = 0 - no overflow
                 ret
 
 @@overfow:      stc          ; CF = 1
@@ -359,12 +326,6 @@ calcul_value_check_overflow  proc
 
 ;--------------------------------------------------------------------
 ; Check for space and skip if present
-;
-; Descr: Changes string pointer: CX--, DI++ (move to next character).
-;        Loads the next character into BL and tests if it's a space.
-;        If character is not a space: sets Carry Flag to 0 and exits.
-;        If character is a space: calls skip_space function
-;        to skip all space characters and sets Carry flag to 1
 ;
 ; Entry: di - pointer to current position in string
 ;        cx - length of string that will be in frame
@@ -386,7 +347,7 @@ check_and_skip_space  proc
                 mov al, ' '
 
                 call skip_symb
-@@space_found:  stc          ; CF = 1
+                stc          ; CF = 1 space found
                 ret
 
 @@no_space:     clc          ; CF = 0
@@ -429,10 +390,12 @@ setv_place      proc
 
                 test cx, 1
                 jnz sub_not_even
-                sub di, cx           ; di = di - cx 
+                ; even length:      di = di - length
+                sub di, cx          
                 jmp @@epilogue
 
-sub_not_even:   dec cx               ; cx--
+sub_not_even:   ; not even length:  di = di - (length - 1)
+                dec cx               ; cx--
                 sub di, cx           ; di -= cx
                 inc cx               ; cx++
 
@@ -443,14 +406,6 @@ sub_not_even:   dec cx               ; cx--
 
 ;---------------------------------------------------------------------
 ; Write text string (ds:[si]) to video RAM (es:[di]) with color attribute
-;
-; Descr:  Copies string to video memory character by character:
-;         Zeroes ax before copying
-;         Uses lodsb to load character into al
-;         Uses STOSB to write character to video memory
-;         Sets color attribute from COLW macro after each character
-; After copying, restores original cx and sets si to the video memory
-; address where the string begins.
 ;
 ; Entry(at stack): [sp+6](di)  ---> pointer for memory in video RAM
 ;                  [sp+4](si)  ---> pointer to string in DS
@@ -475,7 +430,7 @@ make_title      proc
                 mov di, [bp+8]      ; getting pointer for memory in videoram
 
 		        xor ax, ax           ; ax = 0
-		        cld		     ; DF=0 (for si++ and di++) 
+		        cld		         ; DF=0 (for si++ and di++) 
 str_cpy:	    lodsb		     ; al = ds:[si], si++
 		        stosb		     ; es:[di] = al, di++
 		        mov byte ptr es:[di], COLW ; es:[di]=color
@@ -492,18 +447,6 @@ str_cpy:	    lodsb		     ; al = ds:[si], si++
 
 ;---------------------------------------------------------------------
 ; Main frame drawing function
-;
-; Descr: Shifts right by one character, moves down(call frame_start_shift) 
-;        for drawing the side parts of the frame.
-;        Frame drawing sequence:
-;          1. Right vertical line
-;          2. Top right corner element
-;          3. Top horizontal line
-;          4. Top left corner element
-;          5. Left vertical line
-;          6. Bottom left corner element
-;          7. Bottom horizontal line
-;          8. Bottom right corner element
 ;
 ; Entry:  cx = length of text area
 ;         si = pointer to start of text area in video RAM
@@ -537,33 +480,41 @@ draw_frame      proc
                 add cx, 2    ; because the frame does not fit snugle (+1 in left/right)
                 add di, 2
 
+                ; move down for drawing the side parts of the frame.
                 call frame_start_shift
 
-                ; drawing frame
+                ; right vertical line
                 mov al, [bx]
                 call make_vert_part
 
+                ; top right corner element
                 mov al, [bx + 3] 
                 mov word ptr es:[di], ax
                 sub di, 2d
 
+                ; top horizontal line
                 mov al, [bx + 1]
                 call make_top_bottom
 
+                ; top left corner element
                 mov al, [bx + 2]
                 mov word ptr es:[di], ax
                 add di, 2d*80d
 
+                ; left vertical line
                 mov al, [bx]
                 call make_vert_part
 
+                ; bottom left corner element
                 mov al, [bx + 4]
                 mov word ptr es:[di], ax
                 add di, 2d
 
+                ; bottom horizontal line
                 mov al, [bx + 1]
                 call make_top_bottom
 
+                ; bottom right corner element
                 mov al, [bx + 5]
                 mov word ptr es:[di], ax
 
@@ -610,10 +561,6 @@ frame_start_shift proc
 ;--------------------------------------------------------------------
 ; Draw top or bottom border line with direction control
 ;
-; Descr: Compares current di position with si (string start in video memory).
-;        Sets Direction Flag (DF) based on comparison result.
-;        Uses rep stosw to draw horizontal lines in the appropriate direction.
-;
 ; Entry: di ---> current pointer in video memory 
 ;        cx = length of line
 ;        si ---> pointer to the start of the text in video memory
@@ -641,11 +588,6 @@ make_top_bottom proc
 
 ;--------------------------------------------------------------------
 ; Draw vertical line of frame
-; 
-; Descr: Compares current di position with si (string start in video ram).
-;        Sets bl based on comparison result.
-;        Writes a word (character + attribute) to video memory.
-;        Moves to next screen line by adding/subtracting 160 bytes.
 ;
 ; Entry: di ---> current pointer in video memory 
 ;        si ---> pointer to the start of the text in video memory
