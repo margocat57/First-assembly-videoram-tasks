@@ -25,8 +25,8 @@ start:
 ; Input:  DS:[80h] - command line length
 ;         DS:[81h] - command line string
 ;
-; IMPORTANT: Before the text, specify the box height and style
-; Example: program.com 3h 02h Meow, Poltorashka
+; IMPORTANT: Before the text, specify the box height and symbols using ;
+; Example: program.com 03h;0bah;0bbh;0cdh;0c9h;0c8h;0bch; Meow, Poltorashka
 ;
 ; Output: None (video memory modified)
 ;
@@ -52,25 +52,30 @@ main            proc
                 ; Parce frame 
                 ;----------------------------------------------------
 
-                ; height -----------------------------------
-                call htoi
+                ;   1. Height
+                ;   2. Vertical line character 
+                ;   3. Top-right corner character 
+                ;   4. Horizontal line character
+                ;   5. Top-left corner character
+                ;   6. Bottom-left corner character 
+                ;   7. Bottom-right corner character
+
+                mov si, 7   ; si = number of params
+
+fill_symb:      call htoi
 
                 cmp dx, 0FFFFh   
                 je exit_err
 
                 push dx
 
-                ; frame number -----------------------------------
-                call htoi
+                dec si
+                cmp si, 0
+                jne fill_symb
 
-                cmp dx, 0FFFFh   
-                je exit_err
-
-                mov bx, frame_count
-                cmp dx, bx
-                jae exit_err
-
-                push dx
+                xor ax, ax       ; ax = 0
+                mov al, ' '      ; al = ' ' (symbol to find)
+                call skip_symb       ; skip spaces
 
                 ;----------------------------------------------------
                 ; Set videoram segment and place for title
@@ -136,7 +141,7 @@ skip_symb       proc
                 mov dx, ds           ; dx = ds
 	            mov es, dx           ; es = dx
 
-		        repe scasb           ; while(cx-- && es:[di++] == ' '(al))
+		        repe scasb           ; while(cx-- && es:[di++] == al)
 
                 dec di               ; di--(because points to second not space)
                 inc cx               ; cx++ (becuse points to first not space)
@@ -154,7 +159,7 @@ skip_symb       proc
 ;
 ; Exit: dx - parsed hexadecimal value if parsing succesful,
 ;       dx = 0FFFFh - if hexadecimal number isn't found
-;       di ---> pointer to string without hexidecimal number and space
+;       di ---> pointer to string without hexidecimal number and separaion symbol
 ;
 ; Destr: bx, al
 ;---------------------------------------------------------------------
@@ -205,7 +210,7 @@ is_digit        proc
                 cmp bl, '9'
                 jbe @@digit
 
-                or bl, 00100000b
+                or bl, 00100000b ;to lower
 
                 cmp bl, 'a'
                 jb @@not_digit
@@ -312,7 +317,7 @@ check_h_suffix  proc
                 inc di
                 dec cx            ; because -1 symbol in str
 
-                call check_and_skip_space
+                call check_and_skip_symb
                 jnc @@not_h
 
                 stc          ; CF = 1 - h found
@@ -338,18 +343,18 @@ check_h_suffix  proc
 ; When CF = 1, parametrs(cx and di) were changed by skip_symb
 ; Destr: bl, al
 ;--------------------------------------------------------------------
-check_and_skip_space  proc
+check_and_skip_symb  proc
                 mov bl, [di]
 
-                cmp bl, ' '
-                jne @@no_space
-                mov al, ' '
+                cmp bl, ';'
+                jne @@no_sep_point
+                mov al, ';'
 
                 call skip_symb
-                stc          ; CF = 1 space found
+                stc          ; CF = 1 ; found
                 ret
 
-@@no_space:     clc          ; CF = 0
+@@no_sep_point: clc          ; CF = 0
                 ret
                 endp
 ;--------------------------------------------------------------------
@@ -445,8 +450,13 @@ str_cpy:	    lodsb		        ; al = ds:[si], si++
 ; Entry:  cx = length of text area
 ;         si = pointer to start of text area in video RAM
 ;         di = current pointer to video RAM (starting position)
-; (stack) [sp + 4] = frame height
-;         [sp + 2] = frame style
+; (stack) [sp + 14] = Height
+;         [sp + 12] = Vertical line character
+;         [sp + 10] = Top-right corner character 
+;         [sp + 8] = Horizontal line character
+;         [sp + 6] = Top-left corner character
+;         [sp + 4] = Bottom-left corner character 
+;         [sp + 2] = Bottom-right corner character
 ;
 ; Exit: No return value (video memory updated)
 ;
@@ -458,15 +468,7 @@ draw_frame      proc
                 push bp
                 mov bp, sp
 
-                xor bx, bx
-
-                mov bx, offset frames
-
-                mov ax, frame_size
-                mul word ptr [bp + 4]         ; ax = frame_size * frame style(index in array)
-                add bx, ax 
-
-                mov dx, [bp + 6]
+                mov dx, [bp + 16]
 
                 xor ax, ax   ; ax = 0
                 mov ah, COLF
@@ -479,43 +481,43 @@ draw_frame      proc
                 call frame_start_shift
 
                 ; right vertical line
-                mov al, [bx]
+                mov al, [bp + 14]
                 call make_vert_part
 
                 ; top right corner element
-                mov al, [bx + 3] 
+                mov al, [bp + 12]
                 mov word ptr es:[di], ax
                 sub di, 2d
 
                 ; top horizontal line
-                mov al, [bx + 1]
+                mov al, [bp + 10]
                 call make_top_bottom
 
                 ; top left corner element
-                mov al, [bx + 2]
+                mov al, [bp + 8]
                 mov word ptr es:[di], ax
                 add di, 2d*80d
 
                 ; left vertical line
-                mov al, [bx]
+                mov al, [bp + 14]
                 call make_vert_part
 
                 ; bottom left corner element
-                mov al, [bx + 4]
+                mov al, [bp + 6]
                 mov word ptr es:[di], ax
                 add di, 2d
 
                 ; bottom horizontal line
-                mov al, [bx + 1]
+                mov al, [bp + 10]
                 call make_top_bottom
 
                 ; bottom right corner element
-                mov al, [bx + 5]
+                mov al, [bp + 4]
                 mov word ptr es:[di], ax
 
 @@end:
                 pop bp
-                ret 2d*2d
+                ret 7d*2d
                 endp
 ;---------------------------------------------------------------------
 
@@ -547,7 +549,7 @@ frame_start_shift proc
 
                add di, dx          ; di = di + 160*dx (start from bottom to top)
                
-               pop dx              ; return bx to previous value
+               pop dx              ; return dx to previous value
 
                ret
                endp
@@ -625,20 +627,6 @@ make_vert_part  proc
                 endp
 ;---------------------------------------------------------------------
 
-
-;--------------------------------------------------------------------
-; frame array
-frames:
-;       VL    HL   LTC   RTC   LBC   RBC
-    db 0bah, 0cdh, 0c9h, 0bbh, 0c8h, 0bch
-    db 0b3h, 0c4h, 0dah, 0bfh, 0c0h, 0d9h
-    db 0dbh, 0dbh, 0dbh, 0dbh, 0dbh, 0dbh
-    db  03h,  03h,  03h,  03h,  03h,  03h
-    db 024h, 024h, 024h, 024h, 024h, 024h
-;--------------------------------------------------------------------
-
-frame_size equ 6
-frame_count equ ($ - frames) / frame_size 
 
 NoEnoughArgs db "No enough arguments or arguments are incorrect$"
 
