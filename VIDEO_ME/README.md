@@ -17,7 +17,10 @@ This assembly language program for DOS (.tiny model) accepts command line argume
 - All parameters must have the 'h' suffix (hexadecimal)
 - The last parameter is separated from the text by a space
 
-## Example program.com 3h;0bah;0bbh;0cdh;0c9h;0c8h;0bch; Meow, Poltorashka
+## Example 
+> ```
+> program.com 3h;0bah;0bbh;0cdh;0c9h;0c8h;0bch; Meow, Poltorashka
+> ```
 
 ## Color Settings (defined inside the program)
 - **Frame color (COLF)** - `00001011b` (cyan characters on black background)
@@ -26,5 +29,7 @@ This assembly language program for DOS (.tiny model) accepts command line argume
 
 ## Error Handling
 If there are insufficient arguments or they are incorrect, the program will display:
-# No enough arguments or arguments are incorrect
+> ```
+> No enough arguments or arguments are incorrect
+> ```
 and terminate with return code 1 (AX=4C01h).
