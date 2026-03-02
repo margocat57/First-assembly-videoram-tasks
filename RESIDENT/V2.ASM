@@ -21,6 +21,7 @@ IDX_HORIZ_LINE      equ  4h
 IDX_VERT_LINE       equ  5h
 
 NumOfRegs           equ  0dh              ; 13 decimal
+SpDrawRegPos        equ  NumOfRegs - 5d
 RegsStringLength    equ  7h           
 FrameHeight         equ  NumOfRegs + 2h   
 FrameLength         equ  RegsStringLength + 2h     
@@ -918,9 +919,6 @@ show_regs       proc
                 mov dx, NumOfRegs
                 mov cx, RegsStringLength
 
-                mov si, di     ; si = element under right top corner
-                add si, ScreenWidthBytes*2d
-
                 call draw_frame
 
                 ; copy from DrawBuffer to video ram -----------------
@@ -958,20 +956,21 @@ show_regs       proc
 ;
 ; Exp: registers at stack like this
 ;      push ss es ds sp bp di si dx cx bx ax, called in show_regs
-; flags      <-- [bp + 32]
-; cs         <-- [bp + 30]
-; ip         <-- [bp + 28]
-; ss         <-- [bp + 26]
-; es         <-- [bp + 24]
-; ds         <-- [bp + 22]
-; sp         <-- [bp + 20]
-; bp         <-- [bp + 18]
-; di         <-- [bp + 16]
-; si         <-- [bp + 14]
-; dx         <-- [bp + 12]
-; cx         <-- [bp + 10]
-; bx         <-- [bp + 8]
-; ax         <-- [bp + 6]
+; flags      <-- [bp + 34]
+; cs         <-- [bp + 32]
+; ip         <-- [bp + 30]
+; ss         <-- [bp + 28]
+; es         <-- [bp + 26]
+; ds         <-- [bp + 24]
+; sp         <-- [bp + 22]
+; bp         <-- [bp + 20]
+; di         <-- [bp + 18]
+; si         <-- [bp + 16]
+; dx         <-- [bp + 14]
+; cx         <-- [bp + 12]
+; bx         <-- [bp + 10]
+; ax         <-- [bp + 8]
+; es         <-- [bp + 6] (in previous function)
 ; ret adress <-- [bp + 4]
 ; bp         <-- [bp + 2]
 ;
@@ -988,18 +987,18 @@ draw_regs       proc
 
                 mov cx, NumOfRegs
                 mov bx, bp   
-                add bx, 30d  ; pointer to cs value
+                add bx, 32d  ; pointer to cs value
 
                 ; process values from bottom to top
 
 @@draw_loop:    
-                cmp bx, 20d  ; 20d - shift for sp value
+                cmp cx, SpDrawRegPos  ; check loop counter
                 je @@put_sp
 
                 mov ax, ss:[bx]
                 call draw_reg_value
 
-                sub di, ScreenWidthBytes*2d ; go to place where next register value will be written
+@@cont_aft_sp:  sub di, ScreenWidthBytes*2d ; go to place where next register value will be written
                 sub di, 0Eh
 
                 sub bx, 2h  ; change pointer to other register value
@@ -1015,10 +1014,7 @@ draw_regs       proc
                 add ax, 12d        ; to get value of stack pointer before interrupt      
                 call draw_reg_value
 
-                sub di, ScreenWidthBytes*2d
-                sub di, 0Eh
-
-                loop @@draw_loop
+                jmp @@cont_aft_sp
 
                 endp
 ;--------------------------------------------------------------------
@@ -1119,7 +1115,6 @@ draw_reg_value  proc
 ; Main frame drawing functions
 ;
 ; Entry:  cx = length of text area
-;         si = pointer to start of text area in video RAM
 ;         di = current pointer to video RAM (starting position)
 ;         dx = frame height
 ;
@@ -1136,6 +1131,8 @@ draw_frame      proc
                 xor ax, ax   ; ax = 0
                 mov ah, COLF ; set frame color
 
+                push di      ; save di to stack
+
                 ; Top horizontal line with left/right corners
                 push IDX_TOP_LEFT IDX_HORIZ_LINE IDX_TOP_RIGHT
                 call make_top_bottom
@@ -1145,14 +1142,18 @@ draw_frame      proc
                 mov al, cs:[bx+IDX_VERT_LINE] 
                 call make_vert_part
 
-                ; Bottom horizontal line with left/right corners
-                push IDX_BOTTOM_RIGHT IDX_HORIZ_LINE IDX_BOTTOM_LEFT
-                call make_top_bottom
-                sub di, ScreenWidthBytes*2d
+                pop di      ; return di
+                add di, ScreenWidthBytes*2d
 
                 ; Right vertical line
                 mov al, cs:[bx+IDX_VERT_LINE] 
                 call make_vert_part
+
+                ; Bottom horizontal line with left/right corners
+                push IDX_BOTTOM_LEFT IDX_HORIZ_LINE IDX_BOTTOM_RIGHT
+                call make_top_bottom
+                sub di, ScreenWidthBytes*2d
+
 
                 pop cx bx ax
                 ret 
@@ -1161,6 +1162,7 @@ draw_frame      proc
 
 ;--------------------------------------------------------------------
 ; Draw top or bottom border line with direction control and left/right corners
+; Draws from right to left
 ;
 ; Entry:    di ---> current pointer in video memory 
 ;           cx = length of line
@@ -1192,14 +1194,8 @@ make_top_bottom proc
                 add bx, ss:[bp + 6]
                 mov al, cs:[bx]
 
-                cmp di, si
-                jae @@forward        ; di >= si --> drawing from left to right
                 std                  ; DF = 1(for di--)
                 sub di, 2h
-                jmp @@draw
-
-@@forward:      cld                  ; DF = 0(for di++)
-                add di, 2h
 
 @@draw:         rep stosw            ; while(cx){es[di] = ax, di(+/-)=2 , cx--}
 
@@ -1220,6 +1216,7 @@ make_top_bottom proc
 
 ;--------------------------------------------------------------------
 ; Draw vertical line of frame
+; Draws from top to bottom
 ;
 ; Entry: di ---> current pointer in video memory 
 ;        si ---> pointer to the start of the text in video memory
@@ -1236,23 +1233,10 @@ make_vert_part  proc
                 mov cx, dx
                 xor bx, bx
 
-                cmp di, si   ; di <= si --> drawing from top to bottom
-                jle @@from_top_to_bot
-                mov bl, 1h             
-@@from_top_to_bot:
-
 @@loop_vert:    mov word ptr es:[di], ax
-                test bl, bl  ; if bl==0 ZF = 0 
-                jz @@top_to_bot
-                jmp @@bot_to_top
 
-@@top_to_bot:   add di, ScreenWidthBytes*2d ; go to next string
+                add di, ScreenWidthBytes*2d ; go to next string
                 loop @@loop_vert
-                jmp @@exit
-
-@@bot_to_top:   sub di, ScreenWidthBytes*2d ; go to next string
-                loop @@loop_vert
-                jmp @@exit
 
 @@exit:         pop ax bx cx
                 ret
