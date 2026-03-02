@@ -68,7 +68,7 @@ In the program, two colors are hardcoded (cannot be changed via the command line
 - **COLW = 00110000b** - color for register values: **black characters on cyan background**
 
 ## Notes
-- The program displays **11 registers**: AX, BX, CX, DX, SI, DI, SP, BP, DS, ES, SS
+- The program displays **13 registers**: AX, BX, CX, DX, SI, DI, SP, BP, DS, ES, SS, IP, CS
 - Register values are shown in hexadecimal format
 - The frame automatically protects itself from being overwritten by other programs
 - Custom frame characters must be specified in hexadecimal format (xxh)

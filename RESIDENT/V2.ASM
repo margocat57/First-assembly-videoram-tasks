@@ -13,19 +13,25 @@ locals @@
 ;-------------------------------------------------------------------------------------------------------------
 COLF                equ  00111111b        ; color define for frame
 COLW                equ  00110000b        ; color define for word
-FRAME_H             equ  0bh              ; frame height (11 decimal)
-FRAME_L             equ  7h               ; frame length
 IDX_TOP_LEFT        equ  0h
 IDX_TOP_RIGHT       equ  1h
 IDX_BOTTOM_LEFT     equ  2h
 IDX_BOTTOM_RIGHT    equ  3h
 IDX_HORIZ_LINE      equ  4h
 IDX_VERT_LINE       equ  5h
-ShiftFromStart      equ 370h              ; (middle of 5th string of videoram) 5d*80d*2d+80d
-FrameStart          equ 2CEh              ; (the left top corner of frame) 4d*80d*2d+80d - 2d
-FrameWidthBytes     equ 50h               ; 80 decimal
-FrameHeightBytes    equ 19h               ; 25 decimal
-TimerShift          equ 4d                ; how often are registers updated in timer ticks
+
+NumOfRegs           equ  0dh              ; 13 decimal
+RegsStringLength    equ  7h           
+FrameHeight         equ  NumOfRegs + 2h   
+FrameLength         equ  RegsStringLength + 2h     
+StringStartRegs     equ  5h
+ShiftFromStart      equ  (StringStartRegs * ScreenWidthBytes + 40d) *2d             ; (middle of 5th string of videoram) 5d*80d*2d+80d
+FrameStart          equ  ((StringStartRegs - 1d) * ScreenWidthBytes + 40d - 1d) *2d ; (the left top corner of frame) 4d*80d*2d+80d - 2d
+ScreenWidthBytes    equ  50h              ; 80 decimal
+ScreenHeightBytes   equ  19h              ; 25 decimal
+TimerShift          equ  4h               ; how often are registers updated in timer ticks
+NextStringJmp       equ  (ScreenWidthBytes - FrameLength) *2d                     ; si += 80*2 - 9 * 2 = string - (frame_length + 2) 
+HotKeyCode          equ  01h
 ;--------------------------------------------------------------------
 
 ;-------------------------------------------------------------------------------------------------------------
@@ -62,7 +68,7 @@ save_old_09h    macro
 ; Destr: ax, dx
 set_new_08h     macro
                 mov ax, 2508h
-                mov dx, offset check_timer
+                mov dx, offset process_timer
 
                 int 21h
                 endm
@@ -73,7 +79,7 @@ set_new_08h     macro
 ; Destr: ax, dx
 set_new_09h     macro
                 mov ax, 2509h
-                mov dx, offset check_ESC 
+                mov dx, offset process_hot_key
 
                 int 21h
                 endm
@@ -119,14 +125,10 @@ start:          jmp main
 ;-------------------------------------------------------------------------------------------------------------
 
 ConvTable       db "0123456789ABCDEF"
-RegsName        db "axbxcxdxsidibpspdsesss"
-Old08Offs       dw 0
-Old08Seg        dw 0
-Old09Offs       dw 0
-Old09Seg        dw 0
+RegsName        db "axbxcxdxsidibpspdsesssipcs"
 IncorrectArgs   db "Arguments are incorrect$"
-IsFrameShown    db 0                           ;variable shows if frame shown
-TimeCnt         db 1                           ;to count timer ticks
+IsFrameShown    db 0                           ; variable shows if frame shown
+TimeCnt         db 0                           ;to count timer ticks
 
 frame_elements: 
                 db 0c9h                        ; idx 0: left top corner
@@ -144,14 +146,14 @@ param_table:
                 db 'HL', IDX_HORIZ_LINE,0     ; --HL=xxh - horizontal line
                 db 'VL', IDX_VERT_LINE,0      ; --VL=xxh - vertical line
 
-param_size       equ 4d
-param_count      equ ($ - param_table) / param_size
+param_size      equ 4d
+param_count     equ ($ - param_table) / param_size
 
 ; buffer for drawing frame before putting it to videoram
-DrawBuffer       db  (FrameWidthBytes * FrameHeightBytes * 2) dup(0) 
+DrawBuffer       db  (ScreenWidthBytes * ScreenHeightBytes * 2) dup(0) 
 
 ; buffer to save screen that will be covered to videoram
-SaveBuffer       db  (FrameWidthBytes * FrameHeightBytes * 2) dup(0)  
+SaveBuffer       db  (ScreenWidthBytes * ScreenHeightBytes * 2) dup(0)  
 
 ;--------------------------------------------------------------------
 ;--------------------------------------------------------------------
@@ -199,23 +201,22 @@ main:           ;----------------------------------------------------
 ; Note: If the users wants to change the default frame parameters, 
 ;       they must specify named parameters as follows 
 ;       (for example, for a vertical line) --VL=03h. The allowed names are:
-; --TL=xxh - left top corner
-; --TR=xxh - right top corner
-; --BL=xxh - left bottom corner
-; --BR=xxh - right bottom corner
-; --HL=xxh - horizontal line
-; --VL=xxh - vertical line
+; --TL=xxh, - left top corner
+; --TR=xxh, - right top corner
+; --BL=xxh, - left bottom corner
+; --BR=xxh, - right bottom corner
+; --HL=xxh, - horizontal line
+; --VL=xxh, - vertical line
 ;
 ; Destr: dx(if no syntax error), si, di
 ;---------------------------------------------------------------------
 parce_frame_params proc
                 push ax bx cx
-                ;----------------------------------------------------
-                ; Parce params
-                ;----------------------------------------------------
+
                 mov bx, offset frame_elements
 
-@@parce_loop:   cmp cx, 0h
+@@parce_loop:   ; check for loop exit --------------------------------
+                cmp cx, 0h
                 je @@exit
 
                 xor ax, ax       ; ax = 0
@@ -225,11 +226,15 @@ parce_frame_params proc
                 cmp byte ptr ds:[di], 0Dh
                 je @@exit
 
+                ; parse '--' ----------------------------------------
+
                 cmp word ptr ds:[di], '--'
                 jne @@exit_err
 
-                add di, 2d
+                add di, 2d  ; process next symbol
                 sub cx, 2d
+
+                ; parce parametr's name ------------------------------
 
                 cmp byte ptr ds:[di], 0Dh
                 je @@exit_err
@@ -238,20 +243,27 @@ parce_frame_params proc
                 cmp si, 0FFFFh
                 je @@exit_err
 
-                add di, 2d
+                add di, 2d ; process next symbol
                 sub cx, 2d
+
+                ; parce '=' ------------------------------------------
 
                 cmp byte ptr ds:[di], '='
                 jne @@exit_err
 
-                inc di
+                inc di  ; process next symbol
                 dec cx
+
+                ; parce digit and separation -------------------------
 
                 call htoi
                 cmp dx, 0FFFFh
                 je @@exit
 
+                ; update frame elements table ------------------------
+
                 mov byte ptr cs:[bx + si], dl
+
                 xor dx, dx                    ; dx = 0
                 jmp @@parce_loop
 
@@ -279,18 +291,18 @@ is_name_correct proc
                 mov si, offset param_table 
                 mov cx, param_count
 
-@@cmp_loop:     mov bx, cs:[si] 
-                cmp word ptr ds:[di], bx
+@@cmp_loop:     mov bx, cs:[si]           ; get the name of parametr from param_table 
+                cmp word ptr ds:[di], bx  ; compare cmd line element with the name in param_table 
                 je @@exit_succ
 
-                add si, param_size
+                add si, param_size        ; go to another element of param_table
                 loop @@cmp_loop
                 
 @@exit_err:     mov si, 0FFFFh
                 pop cx bx ax
                 ret
 
-@@exit_succ:    mov si, cs:[si+2]
+@@exit_succ:    mov si, cs:[si+2]         ; get the param_index
 
                 pop cx bx ax
                 ret
@@ -313,7 +325,7 @@ htoi            proc
                 xor dx, dx       ; dx = 0
                 xor bx, bx       ; bx = 0
 
-@@conv_loop:    mov byte ptr bl, [di] ; bl = ds:[di]
+@@conv_loop:    mov byte ptr bl, ds:[di] ; bl = ds:[di]
 
                 call is_digit 
                 jnc @@check_h
@@ -491,7 +503,7 @@ check_h_suffix  proc
 ; Destr: bl, al
 ;--------------------------------------------------------------------
 check_and_skip_symb  proc
-                mov bl, [di]
+                mov bl, ds:[di]
 
                 cmp bl, ','
                 jne @@no_sep_point
@@ -520,10 +532,9 @@ check_and_skip_symb  proc
 ;---------------------------------------------------------------------
 skip_symb       proc
                 push ax bx
-                push dx
 
-                mov dx, ds           ; dx = ds
-	            mov es, dx           ; es = dx
+                mov bx, ds           ; bx = ds
+	            mov es, bx           ; es = bx
 
 		        repe scasb           ; while(cx-- && es:[di++] == al)
 
@@ -533,7 +544,6 @@ skip_symb       proc
                 inc cx               ; cx++ (becuse points to first not space)
                 
 @@not_found_diff:                
-                pop dx
                 pop bx ax
                 ret
                 endp
@@ -562,20 +572,23 @@ skip_symb       proc
 ;
 ; Note2: If scan code isn't equal to escape to old interrupt handler is called
 ;--------------------------------------------------------------------
-check_ESC       proc
-                push sp ax bx cx dx si di bp ds es ss
+process_hot_key proc
+                push ss es ds sp bp di si dx cx bx ax
 
+                ; read letter scan code
                 in al, 60h      
                 mov bl, al
 
-                ; cmp scan code with scan code of esc
-                cmp bl, 01h
+                ; cmp scan code with scan code of hot key
+                cmp bl, HotKeyCode
                 jne @@not_esc
 
+                ; send confirmation to PPI that data has been read from the port
                 in al, 61h      
                 or al, 10000000b     
                 out 61h, al  
 
+                ; restore PPI state
                 and al, 01111111b 
                 out 61h, al
 
@@ -592,14 +605,18 @@ check_ESC       proc
                 mov cs:IsFrameShown, 0
                 jmp @@EOI
 
-@@not_esc:      pop ss es ds bp di si dx cx bx ax sp
-                jmp dword ptr cs:[Old09Offs] 
+@@not_esc:      pop ax bx cx dx si di bp sp ds es ss
+
+                ; old 09h interrupt handler
+                db 0eah  ; bytecode of command jmp dword ptr
+Old09Offs       dw 0
+Old09Seg        dw 0
 
 @@EOI:          
                 mov al, 20h     
                 out 20h, al  
 
-                pop ss es ds bp di si dx cx bx ax sp
+                pop ax bx cx dx si di bp sp ds es ss
 
                 iret
 
@@ -623,12 +640,13 @@ check_ESC       proc
 ;
 ; Note: At the end, the old timer interrupt handler is called.
 ;--------------------------------------------------------------------
-check_timer     proc
-                push sp ax bx cx dx si di bp ds es ss
+process_timer   proc
+                push ss es ds sp bp di si dx cx bx ax
 
                 cmp cs:IsFrameShown, 0
                 je @@exit
 
+                ; compare DrawBuffer and video ram
                 mov si, offset DrawBuffer
                 add si, FrameStart
                 push 0b800h
@@ -636,6 +654,7 @@ check_timer     proc
                 mov di, FrameStart
                 call compare_buffers 
 
+                ; check if frame contents needs updating
                 cmp cs:TimeCnt, TimerShift
                 jae @@update_frame
 
@@ -643,10 +662,14 @@ check_timer     proc
                 jmp @@exit
 
 @@update_frame: call show_regs
-                mov cs:TimeCnt,0
+                mov cs:TimeCnt, 0
                 
-@@exit:         pop ss es ds bp di si dx cx bx ax sp
-                jmp dword ptr cs:[Old08Offs] 
+@@exit:         pop ax bx cx dx si di bp sp ds es ss
+
+                ; old 08h interrupt handler
+                db 0eah
+Old08Offs       dw 0
+Old08Seg        dw 0
 
                 iret
 
@@ -679,15 +702,13 @@ compare_buffers proc
                 push ax bx cx
 
                 xor ax, ax          ; ax = 0
-                mov bx, FRAME_H
-                add bx, 2h
+                mov bx, FrameHeight
 
 @@process_lines:
-                mov cx, FRAME_L
-                add cx, 2h
+                mov cx, FrameLength
 
 @@cmp_elem:	    mov ax, cs:[si]
-                cmp ax, es:[di]
+                cmp ax, es:[di]         
                 je @@continue_cmp
 
                 call change_elem
@@ -696,11 +717,11 @@ compare_buffers proc
                 add di, 2
                 loop @@cmp_elem
 
-                dec bx
-                add si, 8eh       ; si += 80*2 - 9 * 2 = string - (frame_length + 2) 
-                add di, 8eh
+                dec bx                    ; decrease number of processed lines
+                add si, NextStringJmp     ; go to next string of frame  
+                add di, NextStringJmp
 
-                cmp bx, 0h
+                cmp bx, 0h                ; check if all lines are processed
                 jne @@process_lines
 
                 pop cx bx ax
@@ -723,11 +744,11 @@ change_elem     proc
                 mov bx, offset SaveBuffer
                 add bx, di
                 
-                ; save elem to save buffer
+                ; save element of videoram to save buffer
                 mov ax, es:[di]
                 mov cs:[bx], ax
                 
-                ; show frame element
+                ; set frame element to place where frame was damaged
                 mov ax, cs:[si]
                 mov es:[di], ax
 
@@ -748,7 +769,7 @@ change_elem     proc
 ; Entry: ds - source segment
 ;        si - source offset
 ;        es - destination segment
-;        di - desctination offset
+;        di - destination offset
 ;
 ; IMPORTANT: if you CHANGE DS before calling function RESTORE IT after call
 ;
@@ -762,21 +783,19 @@ copy_to_buffer  proc
                 push ax bx cx
 
                 xor ax, ax          ; ax = 0
-                mov bx, FRAME_H
-                add bx, 2h
+                mov bx, FrameHeight
                 cld		            ; DF=0 (for si+=2 and di+=2) 
 
 @@process_lines:
-                mov cx, FRAME_L
-                add cx, 2h
+                mov cx, FrameLength
 
 @@data_cpy:	    lodsw		        ; ax = ds:[si], si+=2
 		        stosw		        ; es:[di] = ax, di+=2
                 loop @@data_cpy
 
                 dec bx
-                add si, 8eh       ; si += 8eh
-                add di, 8eh
+                add si, NextStringJmp   ; go to next string of frame 
+                add di, NextStringJmp
 
                 cmp bx, 0h
                 jne @@process_lines
@@ -806,7 +825,7 @@ save_old_screen proc
                 push 0b800h
                 pop ds
 
-                ; dest = buffer
+                ; dest = SaveBuffer
                 push cs
                 pop es
 
@@ -817,6 +836,7 @@ save_old_screen proc
 
                 call copy_to_buffer
 
+                ; return all segment values
                 pop es
                 pop ds
 
@@ -840,11 +860,11 @@ show_old_screen proc
                 push ds
                 push es
 
-                ; src = videoram
+                ; src = SaveBuffer
                 push 0b800h
                 pop es
 
-                ; dest = buffer
+                ; dest = video ram
                 push cs
                 pop ds
 
@@ -855,6 +875,7 @@ show_old_screen proc
 
                 call copy_to_buffer
 
+                ; return all segment values
                 pop es
                 pop ds
 
@@ -876,23 +897,35 @@ show_old_screen proc
 ;
 ; Exit: No return value (video memory updated)
 ;
-; Destr: si, di, es
+; Destr: si, di
 ;--------------------------------------------------------------------
 show_regs       proc
 
-                push cs
+                push es  ; save es
+
+                ; put registers names and registers values to DrawBuffer
+
+                push cs  ; dest = cs
                 pop es
-                mov di, offset DrawBuffer
+
+                mov di, offset DrawBuffer  ; set draw start position
                 add di, ShiftFromStart
 
                 call draw_regs
 
-                mov dx, FRAME_H
-                mov cx, FRAME_L
-                mov si, di
+                ; put frame elements to DrawBuffer ------------------
+
+                mov dx, NumOfRegs
+                mov cx, RegsStringLength
+
+                mov si, di     ; si = element under right top corner
+                add si, ScreenWidthBytes*2d
+
                 call draw_frame
 
-                push 0b800h
+                ; copy from DrawBuffer to video ram -----------------
+
+                push 0b800h          ; dest = videoram
                 pop es
                 mov di, FrameStart
 
@@ -901,12 +934,13 @@ show_regs       proc
 
                 push ds
 
-                ; src = code segment
-                push cs
+                push cs              ; src = code segment
                 pop ds
 
                 call copy_to_buffer
-                pop ds
+                pop ds               ; restore ds
+
+                pop es               ; restore es
 
                 ret
                 endp
@@ -923,20 +957,23 @@ show_regs       proc
 ; Exit: No return value (video memory updated)
 ;
 ; Exp: registers at stack like this
-;      push sp ax bx cx dx si di bp ds es ss cs, called in show_regs
-; sp  <-- [bp + 26]
-; ax  <-- [bp + 24]
-; bx  <-- [bp + 22]
-; cx  <-- [bp + 20]
-; dx  <-- [bp + 18]
-; si  <-- [bp + 16]
-; di  <-- [bp + 14]
-; bp  <-- [bp + 12]
-; ds  <-- [bp + 10]
-; es  <-- [bp + 8]
-; ss  <-- [bp + 6]
+;      push ss es ds sp bp di si dx cx bx ax, called in show_regs
+; flags      <-- [bp + 32]
+; cs         <-- [bp + 30]
+; ip         <-- [bp + 28]
+; ss         <-- [bp + 26]
+; es         <-- [bp + 24]
+; ds         <-- [bp + 22]
+; sp         <-- [bp + 20]
+; bp         <-- [bp + 18]
+; di         <-- [bp + 16]
+; si         <-- [bp + 14]
+; dx         <-- [bp + 12]
+; cx         <-- [bp + 10]
+; bx         <-- [bp + 8]
+; ax         <-- [bp + 6]
 ; ret adress <-- [bp + 4]
-; bp  <-- [bp + 2]
+; bp         <-- [bp + 2]
 ;
 ; Destr: di
 ;--------------------------------------------------------------------
@@ -947,38 +984,39 @@ draw_regs       proc
                 push ax bx cx
 
                 call draw_names
-                sub di, 6e0h
+                sub di, ScreenWidthBytes*2d ; go to last string
 
-                mov cx, FRAME_H
+                mov cx, NumOfRegs
                 mov bx, bp   
-                add bx, 24d  ; pointer to ax
+                add bx, 30d  ; pointer to cs value
+
+                ; process values from bottom to top
 
 @@draw_loop:    
-                cmp cx, 4h
+                cmp bx, 20d  ; 20d - shift for sp value
                 je @@put_sp
 
                 mov ax, ss:[bx]
                 call draw_reg_value
 
+                sub di, ScreenWidthBytes*2d ; go to place where next register value will be written
                 sub di, 0Eh
-                add di, 0a0h
 
-                sub bx, 2h
+                sub bx, 2h  ; change pointer to other register value
                 loop @@draw_loop
 
-                add di, 0Eh
-                sub di, 0a0h
+                add di, 0Eh  ; go to right top element of frame
                 pop cx bx ax
 
                 pop bp
                 ret
 
-@@put_sp:       mov ax, ss:[bp + 26d]
-                add ax, 6h         ; because stack contains flags, cs, ip
+@@put_sp:       mov ax, ss:[bx]
+                add ax, 12d        ; to get value of stack pointer before interrupt      
                 call draw_reg_value
 
+                sub di, ScreenWidthBytes*2d
                 sub di, 0Eh
-                add di, 0a0h
 
                 loop @@draw_loop
 
@@ -996,10 +1034,12 @@ draw_names      proc
                 push ax bx cx
 
                 mov si, offset RegsName
-                mov cx, FRAME_H
+                mov cx, NumOfRegs
                 xor bx, bx
 
                 mov ah, COLW
+
+                ; process names from top to bottom
 
 @@draw_loop:    ; put letter in RegsName to buffer
                 mov al, cs:[si + bx]
@@ -1008,12 +1048,12 @@ draw_names      proc
                 ; put pointer to next letter in RegsName
                 inc bx                       
 
-                ; put letter in RegsName to videoram
+                ; put letter in RegsName to buffer
                 mov al, cs:[si + bx]        
                 mov word ptr es:[di + 2], ax 
 
                 ; go to next string
-                add di, 0a0h
+                add di, ScreenWidthBytes*2d
 
                 ; put pointer to next letter in RegsName
                 inc bx
@@ -1039,11 +1079,14 @@ draw_names      proc
 draw_reg_value  proc
                 push ax bx cx
 
+                ; Draw space between name and value -----------------
                 add di, 4h
                 mov bh, COLW
                 mov bl, 20h
                 mov word ptr es:[di], bx 
                 add di, 2h
+
+                ; Draw value ----------------------------------------
 
                 mov si, offset ConvTable
                 mov cx, 4h
@@ -1091,22 +1134,25 @@ draw_frame      proc
                 mov bx, offset frame_elements
 
                 xor ax, ax   ; ax = 0
-                mov ah, COLF
+                mov ah, COLF ; set frame color
 
-                ; Right vertical line
-                mov al, cs:[bx+IDX_VERT_LINE] 
-                call make_vert_part
-
+                ; Top horizontal line with left/right corners
                 push IDX_TOP_LEFT IDX_HORIZ_LINE IDX_TOP_RIGHT
                 call make_top_bottom
-                add di, 0a0h
+                add di, ScreenWidthBytes*2d ;go to place from which vertical line will be drawn
 
                 ; Left vertical line
                 mov al, cs:[bx+IDX_VERT_LINE] 
                 call make_vert_part
 
+                ; Bottom horizontal line with left/right corners
                 push IDX_BOTTOM_RIGHT IDX_HORIZ_LINE IDX_BOTTOM_LEFT
                 call make_top_bottom
+                sub di, ScreenWidthBytes*2d
+
+                ; Right vertical line
+                mov al, cs:[bx+IDX_VERT_LINE] 
+                call make_vert_part
 
                 pop cx bx ax
                 ret 
@@ -1135,16 +1181,19 @@ make_top_bottom proc
 
                 push ax bx cx
 
+                ; corner element -------------------------------------
                 add bx, ss:[bp + 4]
                 mov al, cs:[bx] 
                 mov word ptr es:[di], ax 
                 sub bx, ss:[bp + 4]
 
+                ; horizontal line -------------------------------------
+
                 add bx, ss:[bp + 6]
                 mov al, cs:[bx]
 
                 cmp di, si
-                jae @@forward
+                jae @@forward        ; di >= si --> drawing from left to right
                 std                  ; DF = 1(for di--)
                 sub di, 2h
                 jmp @@draw
@@ -1153,6 +1202,8 @@ make_top_bottom proc
                 add di, 2h
 
 @@draw:         rep stosw            ; while(cx){es[di] = ax, di(+/-)=2 , cx--}
+
+                ; corner element --------------------------------------
 
                 sub bx, ss:[bp + 6]
                 add bx, ss:[bp + 8]
@@ -1185,21 +1236,21 @@ make_vert_part  proc
                 mov cx, dx
                 xor bx, bx
 
-                cmp di, si
-                jl @@set_direction   
+                cmp di, si   ; di <= si --> drawing from top to bottom
+                jle @@from_top_to_bot
                 mov bl, 1h             
-@@set_direction:
+@@from_top_to_bot:
 
 @@loop_vert:    mov word ptr es:[di], ax
-                test bl, bl
-                jz @@jump_top
-                jmp @@jump_bot
+                test bl, bl  ; if bl==0 ZF = 0 
+                jz @@top_to_bot
+                jmp @@bot_to_top
 
-@@jump_top:     add di, 0a0h
+@@top_to_bot:   add di, ScreenWidthBytes*2d ; go to next string
                 loop @@loop_vert
                 jmp @@exit
 
-@@jump_bot:     sub di, 0a0h
+@@bot_to_top:   sub di, ScreenWidthBytes*2d ; go to next string
                 loop @@loop_vert
                 jmp @@exit
 
