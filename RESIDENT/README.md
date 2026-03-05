@@ -1,74 +1,58 @@
-# Resident assembly program
+# Программа-резидент на ассемблере
 
-## Description
-This is a resident program for DOS written in Assembly language (.286, .model tiny). It intercepts keyboard and timer interrupts to display CPU register values in a frame on the screen. The program becomes TSR (Terminate and Stay Resident) after the first launch.
+## Описание
+Это программа-резидент для ДОС, которая написана на языке ассемблера. Она перехватывает прерывание таймера и клавиатуры, и выводит значения 13 регистров: AX, BX, CX, DX, SI, DI, SP, BP, DS, ES, SS, IP, CS в 16-ричной системе счисления формате на экран (подробнее про механизм работы программы будет описано ниже). Программа становится резидентом после 1 запуска. Так как используется .model tiny, то для запуска необходимо создавать .com файл.
 
-## Interrupts Handled
-- **INT 08h** (Timer) - frame protection and register updates
-- **INT 09h** (Keyboard) - ESC key detection
-
-## Command Line Parameters
-You can customize the frame characters using named parameters:
+## Параметры командной строки
+При первом запуске программы можно задать параметры рамки, в которой будут выводиться регистры на экран. Можно задать не все параметры, а только часть, например:
 > ```
-> program.com --TL=xxh --TR=xxh --BL=xxh --BR=xxh --HL=xxh --VL=xxh
+> prog.com --VL=03h --HL=04h
 > ```
 
-Where:
-- `--TL=xxh` - left top corner
-- `--TR=xxh` - right top corner
-- `--BL=xxh` - left bottom corner
-- `--BR=xxh` - right bottom corner
-- `--HL=xxh` - horizontal line
-- `--VL=xxh` - vertical line
+Символ рамки задается в 16-ричной системе счисления
 
-## Example 
-> ```
-> program.com --VL=03h --HL=04h
-> ```
+Где:
+- `--TL=xxh` - левый верхний угол
+- `--TR=xxh` - правый верхний угол
+- `--BL=xxh` - левый нижний угол
+- `--BR=xxh` - правый нижний угол
+- `--HL=xxh` - горизонтальная линия
+- `--VL=xxh` - вертикальная линия
 
-If no parameters are specified, default pseudographics characters are used:
+Если параметры рамки не заданы, то используются символы псевдографики:
 
-- `0c9h` - left top corner
-- `0bbh` - right top corner
-- `0c8h` - left bottom corner
-- `0bch` - right bottom corner
-- `0cdh` - horizontal line
-- `0bah` - vertical line
+- `0c9h` - левый верхний угол
+- `0bbh` - правый верхний угол
+- `0c8h` - левый нижний угол
+- `0bch` - правый нижний угол
+- `0cdh` - горизонтальная линия
+- `0bah` - вертикальная линия
 
+## Цвета рамки и регистров
+Цвет рамки и регистров защит внутри программы, его поменять нельзя:
+- **COLF = 00111111b** - цвет рамки: **белые символы на бирюзовом фоне**
+- **COLW = 00110000b** - цвет регистров: **черные символы на бирюзовом фоне**
 
-## How It Works
+## Механизм работы после 1 запуска.
 
-### First Launch
-1. Parses command-line parameters (if any)
-2. Saves old interrupt vectors (INT 08h and INT 09h)
-3. Installs new interrupt handlers
-4. Becomes resident (TSR)
+После 1 запуска программа становится резидентом, сохраняя вектор старого (досовского) 8 и 9 прерывани1 и заменяя 8 и 9 вектор прерываний. Дальше программа перехватывает 8 (таймер) и 9 (клавиатура) прерывания следующим образом:
 
-### ESC Handler (INT 09h)
-- **If frame not shown (IsFrameShown set to 0):**
-- Saves current screen area to `SaveBuffer`
-- Draws frame with register values to `DrawBuffer`
-- Displays the contents of `DrawBuffer` on the screen
-- Sets `IsFrameShown = 1`
-- **If frame shown (IsFrameShown set to 1):**
-- Restores original screen from `SaveBuffer`
-- Sets `IsFrameShown = 0`
+### Перехват клавиатурного прерывания
 
-### Timer Handler (INT 08h)
-- **Every tick:**
-- Compares video memory with `DrawBuffer` symbol by symbol
-- Restores any corrupted frame characters. If discrepancies are found (meaning some other program has drawn characters in video memory), the mismatching character is transferred to the SaveBuffer, and in its place, the character from the same position in the DrawBuffer is drawn.
-- **Every `TimerShift` ticks:**
-- Updates register values in `DrawBuffer`
-- Refreshes the display using data from `DrawBuffer`
+Программа читает скан-код клавиши из 60 порта и сравнивает его со скан-кодом горячей клавиши ( данная клавиша - esc). Если скан-код не совпал, то передается управление досовскому обработчику 9 прерывания.
 
-## Frame and Register Colors
-In the program, two colors are hardcoded (cannot be changed via the command line):
-- **COLF = 00111111b** - color for the frame: **white characters on cyan background**
-- **COLW = 00110000b** - color for register values: **black characters on cyan background**
+Иначе проверяется нарисована ли ранее рамка. Если рамка не нарисована, то сначала сохраняется содержимое той области экрана, на которой нарисуется рамка в SaveBuffer. 
 
-## Notes
-- The program displays **13 registers**: AX, BX, CX, DX, SI, DI, SP, BP, DS, ES, SS, IP, CS
-- Register values are shown in hexadecimal format
-- The frame automatically protects itself from being overwritten by other programs
-- Custom frame characters must be specified in hexadecimal format (xxh)
+Далее происходит процесс рисования рамки: сначала символы рамки и их аттрибуты отображаются в DrawBuffer. Далее содержимое DrawBuffer перерисовывается в видеопамять и так рамка появляется на экране.
+
+Если рамка уже нарисована, то программа восстанавливает содержимое видеопамяти из SaveBuffer.
+
+### Перехват таймерного прерывания
+
+Программа проверяет, нарисована ли рамка. Если рамка не нарисована, то управление передается старому (досовскому) обработчику 8 прерывания.
+
+Если рамка нарисована, то программа начинает процесс сравнения буфферов DrawBuffer и видеопамяти (в процессе сравнивается по 2 байта). Это нужно чтобы другие программы не нарисовали данные поверх рамки. Если находится несовпадение, то есть какая то программа перекрыла часть данных рамки, то несовпадающий символ + аттрибут помещается в SaveBuffer, а на его место рисуется символ рамки из DrawBuffer. В конце обработки рамки управление передается старому (досовскому) обработчику 8 прерывания.
+
+#### Каждые 4 тика:
+
+Программа обновляет содержимое DrawBuffer актуальными значениями регистров. Далее содержимое DrawBuffer перерисовывается в видеопамять и так рамка появляется на экране.
