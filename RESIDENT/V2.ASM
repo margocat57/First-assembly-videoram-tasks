@@ -119,6 +119,38 @@ make_resident   macro
 
 
 
+;--------------------------------------------------------------------
+; Pushes registers in special order
+;
+; Special register push order. Since the interrupt handler pushes flags, cs, 
+; and ip onto the stack before pushing the registers, and the registers in 
+; the frame are printed in the order ax, bx, cx, dx, si, di, bp, sp, ds, es, ss, cs, ip, 
+; for a more convenient top-to-bottom stack traversal when printing registers, 
+; they should be printed in exactly that order.
+;--------------------------------------------------------------------
+push_reg_value  macro
+                push ss es ds sp bp di si dx cx bx ax
+                endm
+;--------------------------------------------------------------------
+
+
+;--------------------------------------------------------------------
+; Pops registers in special order
+;
+; Special register pop order. Since the interrupt handler pushes flags, cs, 
+; and ip onto the stack before pushing the registers, and the registers in 
+; the frame are printed in the order ax, bx, cx, dx, si, di, bp, sp, ds, es, ss, cs, ip, 
+; for a more convenient top-to-bottom stack traversal when printing registers, 
+; they should be printed in exactly that order.\
+; 
+; The pop must be done in the reverse order.
+;--------------------------------------------------------------------
+pop_reg_value   macro
+                pop ax bx cx dx si di bp sp ds es ss
+                endm
+
+
+
 start:          jmp main
 
 ;-------------------------------------------------------------------------------------------------------------
@@ -211,10 +243,9 @@ main:           ;----------------------------------------------------
 ; --HL=xxh - horizontal line
 ; --VL=xxh - vertical line
 ;
-; Destr: dx(if no syntax error), si, di
+; Destr: dx(if no syntax error), si, di, bx, cx, ax
 ;---------------------------------------------------------------------
 parce_frame_params proc
-                push ax bx cx
 
                 mov bx, offset frame_elements
 
@@ -267,10 +298,10 @@ parce_frame_params proc
                 xor dx, dx                    ; dx = 0
                 jmp @@parce_loop
 
-@@exit:         pop cx bx ax
+@@exit:         
                 ret
 
-@@exit_err:     pop cx bx ax
+@@exit_err:     
                 mov dx, 0FFFFh
                 ret
                 endp
@@ -286,7 +317,7 @@ parce_frame_params proc
 ;       si = param_index in param_table if name is correct
 ;---------------------------------------------------------------------
 is_name_correct proc
-                push ax bx cx
+                push bx cx
 
                 mov si, offset param_table 
                 mov cx, param_count
@@ -299,12 +330,12 @@ is_name_correct proc
                 loop @@cmp_loop
                 
 @@exit_err:     mov si, 0FFFFh
-                pop cx bx ax
+                pop cx bx
                 ret
 
 @@exit_succ:    mov si, cs:[si+2]         ; get the param_index
 
-                pop cx bx ax
+                pop cx bx 
                 ret
                 endp
 ;---------------------------------------------------------------------
@@ -317,10 +348,11 @@ is_name_correct proc
 ;
 ; Exit: dx - parsed hexadecimal value if parsing succesful,
 ;       dx = 0FFFFh - if hexadecimal number isn't found
-;       di ---> pointer to string without hexidecimal number and separaion symbol
+;       di ---> pointer to string without hexidecimal number
+;       cx = len string without hexadecimal number
 ;---------------------------------------------------------------------
 htoi            proc
-                push ax bx
+                push bx
 
                 xor dx, dx       ; dx = 0
                 xor bx, bx       ; bx = 0
@@ -341,11 +373,11 @@ htoi            proc
 @@check_h:      call check_h_suffix
                 jc @@exit
 
-@@exit_n_save:  pop cx bx ax
+@@exit_n_save:  pop bx
                 mov dx, 0FFFFh
                 ret 
 
-@@exit:         pop bx ax
+@@exit:         pop bx
                 ret 
                 endp
 ;--------------------------------------------------------------------
@@ -497,7 +529,7 @@ check_h_suffix  proc
 ; Destr: change es to ds
 ;---------------------------------------------------------------------
 skip_symb       proc
-                push ax bx
+                push bx
 
                 mov bx, ds           ; bx = ds
 	            mov es, bx           ; es = bx
@@ -510,7 +542,7 @@ skip_symb       proc
                 inc cx               ; cx++ (becuse points to first not space)
                 
 @@not_found_diff:                
-                pop bx ax
+                pop bx
                 ret
                 endp
 ;---------------------------------------------------------------------
@@ -539,7 +571,7 @@ skip_symb       proc
 ; Note2: If scan code isn't equal to escape to old interrupt handler is called
 ;--------------------------------------------------------------------
 process_hot_key proc
-                push ss es ds sp bp di si dx cx bx ax
+                push_reg_value 
 
                 ; read letter scan code
                 in al, 60h      
@@ -571,7 +603,7 @@ process_hot_key proc
                 mov cs:IsFrameShown, 0
                 jmp @@EOI
 
-@@not_hot_key:  pop ax bx cx dx si di bp sp ds es ss
+@@not_hot_key:  pop_reg_value
 
                 ; old 09h interrupt handler
                 db 0eah  ; bytecode of command jmp dword ptr
@@ -582,7 +614,7 @@ Old09Seg        dw 0
                 mov al, 20h     
                 out 20h, al  
 
-                pop ax bx cx dx si di bp sp ds es ss
+                pop_reg_value
 
                 iret
 
@@ -607,7 +639,7 @@ Old09Seg        dw 0
 ; Note: At the end, the old timer interrupt handler is called.
 ;--------------------------------------------------------------------
 process_timer   proc
-                push ss es ds sp bp di si dx cx bx ax
+                push_reg_value 
 
                 cmp cs:IsFrameShown, 0
                 je @@exit
@@ -630,7 +662,7 @@ process_timer   proc
 @@update_frame: call show_regs
                 mov cs:TimeCnt, 0
                 
-@@exit:         pop ax bx cx dx si di bp sp ds es ss
+@@exit:         pop_reg_value 
 
                 ; old 08h interrupt handler
                 db 0eah
@@ -662,11 +694,9 @@ Old08Seg        dw 0
 ; Note: The comparison area has dimensions: width = frame width + 2 (side characters), 
 ;      height = frame height + 2 (side characters).
 ;
-; Destr: si, di
+; Destr: si, di, ax, bx, cx
 ;--------------------------------------------------------------------
 compare_buffers proc
-                push ax bx cx
-
                 xor ax, ax          ; ax = 0
                 mov bx, FrameHeight
 
@@ -690,7 +720,6 @@ compare_buffers proc
                 cmp bx, 0h                ; check if all lines are processed
                 jne @@process_lines
 
-                pop cx bx ax
                 ret
                 endp
 ;--------------------------------------------------------------------
@@ -705,7 +734,7 @@ compare_buffers proc
 ; Exit: Video memory updated
 ;--------------------------------------------------------------------
 change_elem     proc
-                push ax bx cx
+                push ax bx
 
                 mov bx, offset SaveBuffer
                 add bx, di
@@ -718,7 +747,7 @@ change_elem     proc
                 mov ax, cs:[si]
                 mov es:[di], ax
 
-                pop cx bx ax
+                pop bx ax
                 ret
                 endp
 ;--------------------------------------------------------------------
@@ -743,10 +772,9 @@ change_elem     proc
 ; Note: The copy area has dimensions: width = frame width + 2 (side characters), 
 ;      height = frame height + 2 (side characters).
 ;
-; Destr: si, di, DF(set to 0)
+; Destr: si, di, DF(set to 0), bx, cx
 ;--------------------------------------------------------------------
 copy_to_buffer  proc
-                push ax bx cx
 
                 xor ax, ax          ; ax = 0
                 mov bx, FrameHeight
@@ -766,7 +794,6 @@ copy_to_buffer  proc
                 cmp bx, 0h
                 jne @@process_lines
 
-                pop cx bx ax
                 ret
                 endp
 ;--------------------------------------------------------------------
@@ -863,7 +890,7 @@ show_old_screen proc
 ;
 ; Exit: No return value (video memory updated)
 ;
-; Destr: si, di
+; Destr: si, di, bx, cx, ax
 ;--------------------------------------------------------------------
 show_regs       proc
 
@@ -939,13 +966,11 @@ show_regs       proc
 ; ret adress <-- [bp + 4]
 ; bp         <-- [bp + 2]
 ;
-; Destr: di
+; Destr: di, bx, cx, ax
 ;--------------------------------------------------------------------
 draw_regs       proc
                 push bp
                 mov bp, sp
-
-                push ax bx cx
 
                 call draw_names
                 sub di, ScreenWidth * BytesForSymb ; go to string up
@@ -971,7 +996,6 @@ draw_regs       proc
                 loop @@draw_loop
 
                 add di, 0Ah  ; go to right top element of frame
-                pop cx bx ax
 
                 pop bp
                 ret
@@ -993,7 +1017,6 @@ draw_regs       proc
 ; Destr: di, si
 ;---------------------------------------------------------------------
 draw_names      proc
-                push ax bx cx
 
                 mov si, offset RegsName
                 mov cx, NumOfRegs
@@ -1022,8 +1045,6 @@ draw_names      proc
 
                 loop @@draw_loop
 
-                pop cx bx ax
-
                 ret
                 endp
 ;---------------------------------------------------------------------
@@ -1039,7 +1060,7 @@ draw_names      proc
 ; Destr: di
 ;---------------------------------------------------------------------
 draw_reg_value  proc
-                push ax bx cx
+                push bx cx
 
                 ; Draw space between name and value -----------------                
                 mov bh, COLW
@@ -1069,7 +1090,7 @@ draw_reg_value  proc
 
                 loop @@draw_loop
 
-                pop cx bx ax
+                pop cx bx
 
                 ret
                 endp
@@ -1085,11 +1106,9 @@ draw_reg_value  proc
 ;
 ; Exit: No return value (video memory updated)
 ;
-; Destr: di
+; Destr: di, bx
 ;---------------------------------------------------------------------
 draw_frame      proc
-
-                push ax bx cx
                 
                 mov bx, offset frame_elements
 
@@ -1119,8 +1138,6 @@ draw_frame      proc
                 call make_top_bottom
                 sub di, ScreenWidth * BytesForSymb
 
-
-                pop cx bx ax
                 ret 
                 endp
 ;---------------------------------------------------------------------
@@ -1193,17 +1210,16 @@ make_top_bottom proc
 ; Destr: di
 ;---------------------------------------------------------------------
 make_vert_part  proc
-                push cx bx ax
+                push cx ax
 
                 mov cx, dx
-                xor bx, bx
 
 @@loop_vert:    mov word ptr es:[di], ax
 
                 add di, ScreenWidth * BytesForSymb ; go to next string
                 loop @@loop_vert
 
-@@exit:         pop ax bx cx
+@@exit:         pop ax cx
                 ret
                 endp
 ;---------------------------------------------------------------------
