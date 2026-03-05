@@ -10,7 +10,7 @@ This is a resident program for DOS written in Assembly language (.286, .model ti
 ## Command Line Parameters
 You can customize the frame characters using named parameters:
 > ```
-> program.com --TL=xxh, --TR=xxh, --BL=xxh, --BR=xxh, --HL=xxh, --VL=xxh,
+> program.com --TL=xxh --TR=xxh --BL=xxh --BR=xxh --HL=xxh --VL=xxh
 > ```
 
 Where:
@@ -23,7 +23,7 @@ Where:
 
 ## Example 
 > ```
-> program.com --VL=03h, --HL=04h,
+> program.com --VL=03h --HL=04h
 > ```
 
 If no parameters are specified, default pseudographics characters are used:

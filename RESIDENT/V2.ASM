@@ -26,13 +26,15 @@ RegsStringLength    equ  7h
 FrameHeight         equ  NumOfRegs + 2h   
 FrameLength         equ  RegsStringLength + 2h     
 StringStartRegs     equ  5h
-ShiftFromStart      equ  (StringStartRegs * ScreenWidthBytes + 40d) *2d             ; (middle of 5th string of videoram) 5d*80d*2d+80d
-FrameStart          equ  ((StringStartRegs - 1d) * ScreenWidthBytes + 40d - 1d) *2d ; (the left top corner of frame) 4d*80d*2d+80d - 2d
-ScreenWidthBytes    equ  50h              ; 80 decimal
-ScreenHeightBytes   equ  19h              ; 25 decimal
+ShiftFromStart      equ  (StringStartRegs * ScreenWidth  + 40d) * BytesForSymb  ; (middle of 5th string of videoram) 5d*80d*2d+80d
+FrameStart          equ  ((StringStartRegs - 1d) * ScreenWidth  + 40d - 1d) * BytesForSymb ; (the left top corner of frame) 4d*80d*2d+80d - 2d
+ScreenWidth         equ  50h              ; 80 decimal
+ScreenHeight        equ  19h              ; 25 decimal
+BytesForSymb        equ  2h               ; symbol + attribute
 TimerShift          equ  4h               ; how often are registers updated in timer ticks
-NextStringJmp       equ  (ScreenWidthBytes - FrameLength) *2d                     ; si += 80*2 - 9 * 2 = string - (frame_length + 2) 
+NextStringJmp       equ  (ScreenWidth - FrameLength) * BytesForSymb             ; si += 80*2 - 9 * 2 = string - (frame_length + 2) 
 HotKeyCode          equ  01h
+EndOfCmdLine        equ  0Dh
 ;--------------------------------------------------------------------
 
 ;-------------------------------------------------------------------------------------------------------------
@@ -90,11 +92,11 @@ set_new_09h     macro
 exit_err_macro  macro    
                 xor ax, ax                  ; ax = 0
 
-                mov dx, offset IncorrectArgs
+                mov dx, offset IncorrectArgs ; out err msg
                 mov ah, 09h
                 int 21h
             
-		        mov ax, 4c01h
+		        mov ax, 4c01h    ; end prog with exit code 1
                 int 21h
                 endm
 
@@ -151,10 +153,10 @@ param_size      equ 4d
 param_count     equ ($ - param_table) / param_size
 
 ; buffer for drawing frame before putting it to videoram
-DrawBuffer       db  (ScreenWidthBytes * ScreenHeightBytes * 2) dup(0) 
+DrawBuffer       db  (ScreenWidth * ScreenHeight * BytesForSymb) dup(0) 
 
 ; buffer to save screen that will be covered to videoram
-SaveBuffer       db  (ScreenWidthBytes * ScreenHeightBytes * 2) dup(0)  
+SaveBuffer       db  (ScreenWidth* ScreenHeight * BytesForSymb) dup(0)  
 
 ;--------------------------------------------------------------------
 ;--------------------------------------------------------------------
@@ -196,18 +198,18 @@ main:           ;----------------------------------------------------
 ; Entry: cx = string length
 ;        di ---> pointer to start of string in DS
 ;
-; Exit: (if params set) frame_elements[num_of_param] = user_frame_param
+; Exit: (if params set) cs:frame_elements[num_of_param] = user_frame_param
 ;        dx = FFFFh if syntax error with params occured
 ; 
 ; Note: If the users wants to change the default frame parameters, 
 ;       they must specify named parameters as follows 
-;       (for example, for a vertical line) --VL=03h. The allowed names are:
-; --TL=xxh, - left top corner
-; --TR=xxh, - right top corner
-; --BL=xxh, - left bottom corner
-; --BR=xxh, - right bottom corner
-; --HL=xxh, - horizontal line
-; --VL=xxh, - vertical line
+;       (for example, for a vertical line) --VL=03h, . The allowed names are:
+; --TL=xxh - left top corner
+; --TR=xxh - right top corner
+; --BL=xxh - left bottom corner
+; --BR=xxh - right bottom corner
+; --HL=xxh - horizontal line
+; --VL=xxh - vertical line
 ;
 ; Destr: dx(if no syntax error), si, di
 ;---------------------------------------------------------------------
@@ -217,15 +219,12 @@ parce_frame_params proc
                 mov bx, offset frame_elements
 
 @@parce_loop:   ; check for loop exit --------------------------------
-                cmp cx, 0h
+                test cx, cx
                 je @@exit
 
                 xor ax, ax       ; ax = 0
                 mov al, ' '      ; al = ' ' (symbol to find)
                 call skip_symb   ; skip spaces
-
-                cmp byte ptr ds:[di], 0Dh
-                je @@exit
 
                 ; parse '--' ----------------------------------------
 
@@ -237,7 +236,7 @@ parce_frame_params proc
 
                 ; parce parametr's name ------------------------------
 
-                cmp byte ptr ds:[di], 0Dh
+                cmp byte ptr ds:[di], EndOfCmdLine 
                 je @@exit_err
 
                 call is_name_correct
@@ -456,7 +455,7 @@ convert_letter_to_digit proc
 ;--------------------------------------------------------------------
 
 ;--------------------------------------------------------------------
-; Checks if current character is 'h' suffix and skips space after it
+; Checks if current character is 'h' suffix
 ;
 ; Entry: di = pointer to current position in command line
 ;
@@ -477,44 +476,10 @@ check_h_suffix  proc
                 inc di
                 dec cx            ; because -1 symbol in str
 
-                call check_and_skip_symb
-                jnc @@not_h
-
                 stc          ; CF = 1 - h found
                 ret
 
 @@not_h:        clc          ; CF = 0
-                ret
-                endp
-;--------------------------------------------------------------------
-
-;--------------------------------------------------------------------
-; Check for end symbol and skip if present
-;
-; Entry: di - pointer to current position in string
-;        cx - length of string that will be in frame
-;
-; Exit:  CF = 1 - end symbol found and skipped, 
-;        CF = 0 - no end symbol found
-;
-; Note: CF is used because it's one  of the few flags 
-;        that can be modified with a special instruction
-;
-; When CF = 1, parametrs(cx and di) were changed by skip_symb
-; Destr: bl, al
-;--------------------------------------------------------------------
-check_and_skip_symb  proc
-                mov bl, ds:[di]
-
-                cmp bl, ','
-                jne @@no_sep_point
-                mov al, ','
-
-                call skip_symb
-                stc          ; CF = 1 ; found
-                ret
-
-@@no_sep_point: clc          ; CF = 0
                 ret
                 endp
 ;--------------------------------------------------------------------
@@ -582,7 +547,7 @@ process_hot_key proc
 
                 ; cmp scan code with scan code of hot key
                 cmp bl, HotKeyCode
-                jne @@not_esc
+                jne @@not_hot_key
 
                 ; send confirmation to PPI that data has been read from the port
                 in al, 61h      
@@ -606,7 +571,7 @@ process_hot_key proc
                 mov cs:IsFrameShown, 0
                 jmp @@EOI
 
-@@not_esc:      pop ax bx cx dx si di bp sp ds es ss
+@@not_hot_key:  pop ax bx cx dx si di bp sp ds es ss
 
                 ; old 09h interrupt handler
                 db 0eah  ; bytecode of command jmp dword ptr
@@ -970,7 +935,7 @@ show_regs       proc
 ; cx         <-- [bp + 12]
 ; bx         <-- [bp + 10]
 ; ax         <-- [bp + 8]
-; es         <-- [bp + 6] (in previous function)
+; es         <-- [bp + 6] (in previous function pushed)
 ; ret adress <-- [bp + 4]
 ; bp         <-- [bp + 2]
 ;
@@ -983,7 +948,8 @@ draw_regs       proc
                 push ax bx cx
 
                 call draw_names
-                sub di, ScreenWidthBytes*2d ; go to last string
+                sub di, ScreenWidth * BytesForSymb ; go to string up
+                add di, 4h  ; skip last register name
 
                 mov cx, NumOfRegs
                 mov bx, bp   
@@ -998,13 +964,13 @@ draw_regs       proc
                 mov ax, ss:[bx]
                 call draw_reg_value
 
-@@cont_aft_sp:  sub di, ScreenWidthBytes*2d ; go to place where next register value will be written
-                sub di, 0Eh
+@@cont_aft_sp:  sub di, ScreenWidth * BytesForSymb ; go to place where next register value will be written
+                sub di, 0Ah ; length 4 digits + space ( look draw_reg_value )
 
                 sub bx, 2h  ; change pointer to other register value
                 loop @@draw_loop
 
-                add di, 0Eh  ; go to right top element of frame
+                add di, 0Ah  ; go to right top element of frame
                 pop cx bx ax
 
                 pop bp
@@ -1049,7 +1015,7 @@ draw_names      proc
                 mov word ptr es:[di + 2], ax 
 
                 ; go to next string
-                add di, ScreenWidthBytes*2d
+                add di, ScreenWidth * BytesForSymb
 
                 ; put pointer to next letter in RegsName
                 inc bx
@@ -1075,8 +1041,7 @@ draw_names      proc
 draw_reg_value  proc
                 push ax bx cx
 
-                ; Draw space between name and value -----------------
-                add di, 4h
+                ; Draw space between name and value -----------------                
                 mov bh, COLW
                 mov bl, 20h
                 mov word ptr es:[di], bx 
@@ -1136,14 +1101,14 @@ draw_frame      proc
                 ; Top horizontal line with left/right corners
                 push IDX_TOP_LEFT IDX_HORIZ_LINE IDX_TOP_RIGHT
                 call make_top_bottom
-                add di, ScreenWidthBytes*2d ;go to place from which vertical line will be drawn
+                add di, ScreenWidth * BytesForSymb ;go to place from which vertical line will be drawn
 
                 ; Left vertical line
                 mov al, cs:[bx+IDX_VERT_LINE] 
                 call make_vert_part
 
                 pop di      ; return di
-                add di, ScreenWidthBytes*2d
+                add di, ScreenWidth * BytesForSymb  ; go one string down
 
                 ; Right vertical line
                 mov al, cs:[bx+IDX_VERT_LINE] 
@@ -1152,7 +1117,7 @@ draw_frame      proc
                 ; Bottom horizontal line with left/right corners
                 push IDX_BOTTOM_LEFT IDX_HORIZ_LINE IDX_BOTTOM_RIGHT
                 call make_top_bottom
-                sub di, ScreenWidthBytes*2d
+                sub di, ScreenWidth * BytesForSymb
 
 
                 pop cx bx ax
@@ -1235,7 +1200,7 @@ make_vert_part  proc
 
 @@loop_vert:    mov word ptr es:[di], ax
 
-                add di, ScreenWidthBytes*2d ; go to next string
+                add di, ScreenWidth * BytesForSymb ; go to next string
                 loop @@loop_vert
 
 @@exit:         pop ax bx cx
