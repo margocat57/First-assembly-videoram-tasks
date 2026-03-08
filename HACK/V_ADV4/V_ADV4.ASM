@@ -233,11 +233,10 @@ process_incorr  proc
 ;--------------------------------------------------------------------
 ; Buffers (for input, password and buffer protects small overflow)
 ;--------------------------------------------------------------------
-PasswdInput     db 64d dup(0) 
-MaxPasswLen     dw 128d
-PasswdInput2    db 64d dup(0) 
+PasswdInput     db 128d dup(0)
 CorrectPassw    db "POLTORASHKA"
 PasswLen        equ $ - CorrectPassw
+MaxPasswLen     dw 512d
 SaveBuffer      db SaveLen dup(0) 
 ;--------------------------------------------------------------------
 
