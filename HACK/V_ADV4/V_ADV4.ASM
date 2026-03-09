@@ -8,13 +8,13 @@ locals @@
 ;--------------------------------------------------------------------
 ; Macro defines
 ;--------------------------------------------------------------------
-SaveLen          equ 16d               ; length of buffer that protects damaging code when small overflow
-ColCorrect       equ 00100000b         ; color when password correct
-ColIncorrect     equ 01000000b         ; color when password incorrect
-ScreenWidth      equ  50h              ; 80 decimal
-ScreenHeight     equ  19h              ; 25 decimal
-BytesForSymb     equ  2h               ; symbol + attribute
-StringStart      equ  12h              ; number of sring in videoram where message displays
+SaveLen          equ  16d              ; length of buffer that protects damaging code when small overflow
+ColCorrect       equ  00100000b        ; color when password correct
+ColIncorrect     equ  01000000b        ; color when password incorrect
+ScreenWidth      equ  80d              
+ScreenHeight     equ  25d              
+BytesForSymb     equ  2d               ; symbol + attribute
+StringStart      equ  12d              ; number of sring in videoram where message displays
 PlaceForStr      equ  (ScreenWidth * StringStart + 34d) * BytesForSymb ; place for message start
 HelpBufferCap    equ  2710h
 ; frame defines -----------------------------------------------------
@@ -31,14 +31,14 @@ start:           jmp main
 ;--------------------------------------------------------------------
 ; Strings with different inputs
 ;--------------------------------------------------------------------
-SecondPasswBufCheck  db "ABCDEFGHIJKLMOPQRST$"
+SecondPasswBufCheck  db "ABCDEFGHIJKLMOPQRST"
 SecondPasswLen       equ $ - SecondPasswBufCheck
-GreetStr	     db "Enter password:", 0dh, 0ah, "$"
-AccessGranted    db "Access granted$"
-AccessGrantedLen  equ $ - AccessGranted - 1
-AccessDenied     db "Access denied$"
-AccessDeniedLen  equ $ - AccessDenied - 1
-TooLong          db "Too long input$"
+GreetStr	         db "Enter password:", 0dh, 0ah, "$"
+AccessGranted        db "Access granted" 
+AccessGrantedLen     equ $ - AccessGranted 
+AccessDenied         db "Access denied" 
+AccessDeniedLen      equ $ - AccessDenied 
+TooLong              db "Too long input$"
 ;--------------------------------------------------------------------
 
 ;--------------------------------------------------------------------
@@ -233,10 +233,10 @@ process_incorr  proc
 ;--------------------------------------------------------------------
 ; Buffers (for input, password and buffer protects small overflow)
 ;--------------------------------------------------------------------
-PasswdInput     db 128d dup(0)
+PasswdInput     db 80h dup(0)
 CorrectPassw    db "POLTORASHKA"
 PasswLen        equ $ - CorrectPassw
-MaxPasswLen     dw 512d
+MaxPasswLen     dw 200h
 SaveBuffer      db SaveLen dup(0) 
 ;--------------------------------------------------------------------
 
@@ -361,6 +361,6 @@ str_cpy:	    lodsb		             ; al = ds:[si], si++
 ;--------------------------------------------------------------------
 
 HelpBuffer      db HelpBufferCap dup(0)
-SecondPasswBuf  db "ABCDEFGHIJKLMOPQRST$"
+SecondPasswBuf  db "ABCDEFGHIJKLMOPQRST"
 
 end start
