@@ -9,6 +9,7 @@ locals @@
 ; Macro defines
 ;--------------------------------------------------------------------
 SaveLen          equ  16d              ; length of buffer that protects damaging code when small overflow
+PasswLen         equ  11d
 ColCorrect       equ  00100000b        ; color when password correct
 ColIncorrect     equ  01000000b        ; color when password incorrect
 ScreenWidth      equ  80d              
@@ -47,13 +48,17 @@ main:
                 mov ah, 09h
                 int 21h
 
+                xor dx, dx
                 call fill_passw_buf
                 cmp dx, 0FFFFh
-                je no_overflow
+                je overflow
 
-                call check_passw
-                cmp dx, 0FFFFh
-                je passw_incorr
+                mov si, offset PasswdInput
+                mov cx, cs:MaxPasswLen
+                call hash_passw
+
+                cmp ax, cs:CorrectPassw
+                jne passw_incorr
 
                 call process_corr
                 mov ax, 4c00h    ; end prog with exit code 0
@@ -63,7 +68,7 @@ passw_incorr:   call process_incorr
                 mov ax, 4c01h    ; end prog with exit code 1
                 int 21h
 
-no_overflow:    mov dx, offset TooLong ; out err msg
+overflow:       mov dx, offset TooLong ; out err msg
                 mov ah, 09h
                 int 21h
             
@@ -104,7 +109,15 @@ fill_passw_buf  proc
 
                 jmp @@fill_buffer
 
-@@exit:         call check_passw2
+@@exit:         push cx
+                call check_passw2
+
+                cmp dx, 0FFFFh
+                je overflow
+
+                pop cx
+                
+                mov cs:MaxPasswLen, cx
                 ret
 
 @@exit_no_ovf:  mov dx, 0FFFFh
@@ -112,6 +125,36 @@ fill_passw_buf  proc
                 endp
 ;--------------------------------------------------------------------
 
+;--------------------------------------------------------------------
+; Count hash for password
+;
+; Entry: cx = len of passsword
+;        si --> pointer to buffer with passw
+;
+; Exit: ax = polinomial hash MOD 65536
+;
+; Destr: dx
+;--------------------------------------------------------------------
+hash_passw      proc
+
+                xor ax, ax               ; ax = 0  
+
+                test cx, cx
+                jz @@done
+
+@@hash_loop:             
+                mov dl, cs:[si]              
+                xor dh, dh
+                add ax, dx                
+                shl ax, 3
+
+                inc si
+                loop @@hash_loop
+
+@@done:
+                ret
+                endp
+;--------------------------------------------------------------------
 
 ;--------------------------------------------------------------------
 ; Checks if password is correct
@@ -128,11 +171,12 @@ check_passw     proc
                 mov si, offset CorrectPassw 
                 xor bx, bx            ; bx = 0
                 xor ax, ax            ; ax = 0
-                mov cx, PasswLen      ; cx = PasswLen
+                mov cx, 2             ; cx = PasswLen
                 
 @@check_loop:   mov al, cs:[di+bx]
                 cmp byte ptr cs:[si+bx], al
                 jne @@not_correct
+                inc bx
                 loop @@check_loop
 
                 jmp @@exit
@@ -163,11 +207,12 @@ check_passw2    proc
 @@check_loop:   mov al, cs:[di+bx]
                 cmp byte ptr cs:[si+bx], al
                 jne @@not_correct
+                inc bx
                 loop @@check_loop
 
                 jmp @@exit
 
-@@not_correct:  mov dx, 0FFFFh
+@@not_correct:  mov dx, 0FFFFh 
 @@exit:         ret
                 endp
 ;--------------------------------------------------------------------
@@ -234,9 +279,8 @@ process_incorr  proc
 ; Buffers (for input, password and buffer protects small overflow)
 ;--------------------------------------------------------------------
 PasswdInput     db 80h dup(0)
-CorrectPassw    db "POLTORASHKA"
-PasswLen        equ $ - CorrectPassw
-MaxPasswLen     dw 200h
+CorrectPassw    dw 0E1E0h          ; cat
+MaxPasswLen     dw 84h
 SaveBuffer      db SaveLen dup(0) 
 ;--------------------------------------------------------------------
 
