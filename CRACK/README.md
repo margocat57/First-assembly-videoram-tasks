@@ -27,7 +27,7 @@
 
 Вызывается основная функция выполнения программы, а затем программа завершается:
 
-<img src="images/11.png", style="width: 80%; height: auto;">
+<img src="images/11.png" style="width: 80%; height: auto;">
 
 Сначала у пользователя запрашивается пароль и вводится в буфер.
 
@@ -37,20 +37,20 @@
 
 Затем проверяется хэш введенного пароля и эталонным и в зависимости от этого выводится либо что пароль верный, либо что пароль неверный:
 
-<img src="images/12.png", style="width: 80%; height: auto;">
+<img src="images/12.png" style="width: 80%; height: auto;">
 
 Функция подсчета хэша:
 
-<img src="images/13.png", style="width: 80%; height: auto;">
+<img src="images/13.png" style="width: 80%; height: auto;">
 
 Подготовка к выводу сообщения о том, что пароль верный/неверный, вызов функции отрисовки рамки и завершение программы:
 
-<img src="images/14.png", style="width: 80%; height: auto;">
+<img src="images/14.png" style="width: 80%; height: auto;">
 
 Функция вывода рамки:
 
-<img src="images/15.png", style="width: 80%; height: auto;">
-<img src="images/16.png", style="width: 80%; height: auto;">
+<img src="images/15.png" style="width: 80%; height: auto;">
+<img src="images/16.png" style="width: 80%; height: auto;">
 
 Граф программы 1
 
@@ -61,15 +61,15 @@
 
 Рассмотрим фрагмент кода, где у пользователя запрашивается символ, и кладется в буфер:
 
-<img src="images/17.png", style="width: 80%; height: auto;">
+<img src="images/17.png" style="width: 80%; height: auto;">
 
 Видим, что адрес буфера cs:017D, и также видим что его размер 25 байт. Найдем данный буфер в коде и посмотрим на код под ним и над ним:
 
-<img src="images/18.png", style="width: 80%; height: auto;">
+<img src="images/18.png" style="width: 80%; height: auto;">
 
 Так как turbo debugger плохо дизассемблировал код после буфера, посмотрим тот же код в IDA:
 
-<img src="images/19.png", style="width: 80%; height: auto;">
+<img src="images/19.png" style="width: 80%; height: auto;">
 
 Расположение данных в памяти в этом месте следующее:
 - буфер для ввода пароля
@@ -106,7 +106,7 @@ mov ah, 0Ah
 
 Вызывается основная функция выполнения программы, а затем программа завершается:
 
-<img src="images/20.png", style="width: 80%; height: auto;">
+<img src="images/20.png" style="width: 80%; height: auto;">
 
 Сначала у пользователя запрашивается пароль и вводится в стек, причем каждый следующий байт вводится по более высокому адресу, чем предыдущий.
 
@@ -118,17 +118,17 @@ mov ah, 0Ah
 
 Затем проверяется хэш введенного пароля и эталонным и в зависимости от этого выводится либо что пароль верный, либо что пароль неверный:
 
-<img src="images/21.png", style="width: 80%; height: auto;">
+<img src="images/21.png" style="width: 80%; height: auto;">
 
 Далее я нашла код, с помощью которого подготавливаются данные для вывода того, что пароль верный/неверный, вызывается функция вывода данной информации на экран и реализуется возврат в main с восстановлением bp:
 
-<img src="images/22.png", style="width: 80%; height: auto;">
+<img src="images/22.png" style="width: 80%; height: auto;">
 
 Вывод рамки:
 
-<img src="images/23.png", style="width: 80%; height: auto;">
+<img src="images/23.png" style="width: 80%; height: auto;">
 
-<img src="images/30.png", style="width: 80%; height: auto;">
+<img src="images/30.png" style="width: 80%; height: auto;">
 
 Граф программы:
 
@@ -140,11 +140,11 @@ mov ah, 0Ah
 
 В программе присутствует проверка количества введенных символов, однако Максимально допустимый размер данных, с которым сравнивается счетчик введенных символов, выбран таким образом, что проверка фактически не ограничивает ввод. 
 
-<img src="images/24.png", style="width: 80%; height: auto;">
+<img src="images/24.png" style="width: 80%; height: auto;">
 
 В стек также записывается канарейка, но она расположена ниже области, куда попадают вводимые данные, поэтому при переполнении она не изменяется.
 
-<img src="images/25.png", style="width: 80%; height: auto;">
+<img src="images/25.png" style="width: 80%; height: auto;">
 
 Благодаря этому появляется возможность дойти до области стека, где расположен адрес возврата из функции, и изменить его. В качестве нового адреса можно указать участок кода, который выводит сообщение о том, что пароль верный.
 
@@ -175,7 +175,7 @@ mov ah, 0Ah
 
 В коде программы есть участок, где происходит сравнение вычисленного хэша с эталонным:
 
-<img src="images/26.png", style="width: 80%; height: auto;">
+<img src="images/26.png" style="width: 80%; height: auto;">
 
 Чтобы программа переходила к ветке «пароль верный» независимо от результата сравнения, можно заменить условный переход (`je 01BC`) на безусловный (`jmp 01BC`).
 
