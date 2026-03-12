@@ -171,7 +171,7 @@ check_passw     proc
                 mov si, offset CorrectPassw 
                 xor bx, bx            ; bx = 0
                 xor ax, ax            ; ax = 0
-                mov cx, 2             ; cx = PasswLen
+                mov cx, 2             ; cx = hash
                 
 @@check_loop:   mov al, cs:[di+bx]
                 cmp byte ptr cs:[si+bx], al
