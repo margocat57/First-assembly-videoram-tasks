@@ -29,10 +29,11 @@
 
 Рассмотрим цикл ввода пароля. Видим, что нет проверки на переполнение буффера:
 
-<img src="images1/2.png" style="width: 80%; height: auto;">
+<img src="images1/1_5.png" style="width: 80%; height: auto;">
 
 Тогда стоит посмотреть, что лежит после буффера в памяти:
 
+<img src="images1/2.png" style="width: 80%; height: auto;">
 <img src="images1/3.png" style="width: 80%; height: auto;">
 
 После буффера лежат некоторые данные и код, а затем происходит возврат из функции. Возможно, сразу после буффера расположен код. 
