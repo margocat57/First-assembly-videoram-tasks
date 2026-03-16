@@ -2,6 +2,10 @@
 
 int main() {
     FILE *file = fopen("PATCH1.COM", "rb+");
+    if(!fp){
+        fprintf(stderr, "Incorrect file - can't open");
+        return 0;
+    }
 
     fseek(file, 0x78 ,SEEK_SET);  
     

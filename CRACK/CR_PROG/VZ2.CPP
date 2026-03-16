@@ -3,6 +3,11 @@
 
 int main(){
     FILE* fp = fopen("VZ2.BIN", "wb");
+    if(!fp){
+        fprintf(stderr, "Incorrect file - can't open");
+        return 0;
+    }
+
     for(int i = 0xFFE1; i < 0xFFFA; i++){
         fputc(0x00, fp);
     }

@@ -8,6 +8,11 @@ int main(){
         0xB4, 0x0A
     };
     FILE* fp = fopen("VZ1.BIN", "wb");
+    if(!fp){
+        fprintf(stderr, "Incorrect file - can't open");
+        return 0;
+    }
+    
     for(int i = 0x017D; i < 0x0196; i++){
         fputc(0x00, fp);
     }
